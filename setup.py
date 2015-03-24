@@ -15,5 +15,6 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
     ],
+    scripts=['scout.py'],
     test_suite='tests',
 )
