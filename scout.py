@@ -83,13 +83,18 @@ from playhouse.flask_utils import get_object_or_404
 from playhouse.flask_utils import PaginatedQuery
 from playhouse.sqlite_ext import *
 from playhouse.sqlite_ext import _VirtualFieldMixin
+from werkzeug.serving import run_simple
 
 
 AUTHENTICATION = None
+DATABASE = None
 DEBUG = False
+HOST = '127.0.0.1'
 PAGE_VAR = 'page'
 PAGINATE_BY = 50
+PORT = 8000
 SECRET_KEY = 'huey is a little angel.'  # Customize this.
+STEM = 'porter'
 
 app = Flask(__name__)
 app.config.from_object(__name__)
@@ -559,16 +564,24 @@ def _handle_invalid_request(exc):
 # Initialization, main().
 #
 
-def main(db_file, host='127.0.0.1', port=8000, debug=False, stem='porter'):
-    initialize_database(db_file, stem=stem)
-    app.run(host=host, port=port, debug=debug)
+def main():
+    initialize_database(app.config['DATABASE'])
+    if app.config['DEBUG']:
+        app.run(host=app.config['HOST'], port=app.config['PORT'], debug=True)
+    else:
+        run_simple(
+            hostname=app.config['HOST'],
+            port=app.config['PORT'],
+            application=app,
+            threaded=True)
 
-def initialize_database(db_file, stem='porter'):
-    database.init(db_file)
+def initialize_database(database_file):
+    database.init(database_file)
 
     with database.execution_context():
-        Document.create_table(tokenize=stem, fail_silently=True)
+        Document.create_table(tokenize=app.config['STEM'], fail_silently=True)
         database.create_tables([Metadata, Index, IndexDocument], safe=True)
+    import ipdb; ipdb.set_trace()
 
 def panic(s, exit_code=1):
     sys.stderr.write('\033[91m%s\033[0m\n' % s)
@@ -580,24 +593,19 @@ def get_option_parser():
     parser.add_option(
         '-H',
         '--host',
-        action='store',
-        default='127.0.0.1',
         dest='host',
         help='The hostname to listen on. Defaults to 127.0.0.1.')
     parser.add_option(
         '-p',
         '--port',
-        action='store',
-        default=8000,
         dest='port',
         help='The port to listen on. Defaults to 8000.',
         type='int')
     parser.add_option(
         '-s',
         '--stem',
-        default='porter',
         dest='stem',
-        help='Specify stemming algorithm for indexed content (default="porter").')
+        help='Specify stemming algorithm for content (default="porter").')
     parser.add_option(
         '-d',
         '--debug',
@@ -609,6 +617,16 @@ def get_option_parser():
         '--config',
         dest='config',
         help='Configuration module (python file).')
+    parser.add_option(
+        '--paginate-by',
+        dest='paginate_by',
+        help='Number of documents displayed per page of results, default=50',
+        type='int')
+    parser.add_option(
+        '-k',
+        '--api-key',
+        dest='api_key',
+        help='Set the API key required to access Scout.')
     return parser
 
 
@@ -616,22 +634,39 @@ if __name__ == '__main__':
     option_parser = get_option_parser()
     options, args = option_parser.parse_args()
 
-    if len(args) == 0:
+    if options.config:
+        app.config.from_pyfile(options.config)
+
+    if len(args) == 0 and not app.config.get('DATABASE'):
         panic('Error: missing required path to database file.')
     elif len(args) > 1:
         panic('Error: [%s] only accepts one argument, which is the path '
               'to the database file.' % __file__)
+    else:
+        app.config['DATABASE'] = args[0]
 
-    if options.stem not in ('simple', 'porter'):
-        panic('Unrecognized stemming method. Must be "porter" or "simple".')
+    # Handle command-line options. These values will override any values
+    # that may have been specified in the config file.
+    if options.api_key:
+        app.config['AUTHENTICATION'] = options.api_key
 
-    if options.config:
-        app.config.from_pyfile(options.config)
+    if options.debug:
+        app.config['DEBUG'] = True
 
-    db_file, = args
-    main(
-        db_file,
-        host=options.host,
-        port=options.port,
-        debug=options.debug,
-        stem=options.stem)
+    if options.host:
+        app.config['HOST'] = options.host
+
+    if options.paginate_by:
+        if options.paginate_by < 1 or options.paginate_by > 1000:
+            panic('paginate-by must be between 1 and 1000')
+        app.config['PAGINATE_BY'] = options.paginate_by
+
+    if options.port:
+        app.config['PORT'] = options.port
+
+    if options.stem:
+        if options.stem not in ('simple', 'porter'):
+            panic('Unrecognized stemmer. Must be "porter" or "simple".')
+        app.config['STEM'] = options.stem
+
+    main()
