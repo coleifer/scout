@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """
 RESTful search server powered by SQLite's full-text search extension.
 """
