@@ -75,6 +75,7 @@ from functools import wraps
 import json
 import operator
 import optparse
+import os
 import sys
 
 from flask import abort, Flask, jsonify, request, Response
@@ -581,7 +582,6 @@ def initialize_database(database_file):
     with database.execution_context():
         Document.create_table(tokenize=app.config['STEM'], fail_silently=True)
         database.create_tables([Metadata, Index, IndexDocument], safe=True)
-    import ipdb; ipdb.set_trace()
 
 def panic(s, exit_code=1):
     sys.stderr.write('\033[91m%s\033[0m\n' % s)
@@ -636,13 +636,15 @@ if __name__ == '__main__':
 
     if options.config:
         app.config.from_pyfile(options.config)
+    if os.environ.get('SCOUT_DATABASE'):
+        app.config['DATABASE'] = os.environ['SCOUT_DATABASE']
 
     if len(args) == 0 and not app.config.get('DATABASE'):
         panic('Error: missing required path to database file.')
     elif len(args) > 1:
         panic('Error: [%s] only accepts one argument, which is the path '
               'to the database file.' % __file__)
-    else:
+    elif args:
         app.config['DATABASE'] = args[0]
 
     # Handle command-line options. These values will override any values
