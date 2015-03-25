@@ -636,6 +636,10 @@ if __name__ == '__main__':
 
     if options.config:
         app.config.from_pyfile(options.config)
+
+    if os.environ.get('SCOUT_CONFIG'):
+        app.config.from_pyfile(os.environ['SCOUT_CONFIG'])
+
     if os.environ.get('SCOUT_DATABASE'):
         app.config['DATABASE'] = os.environ['SCOUT_DATABASE']
 
