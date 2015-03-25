@@ -126,7 +126,7 @@ Response:
 
 The `POST` response corresponds to the serialized index detail for the newly-created index.
 
-### Index detail: "/<index name>/"
+### Index detail: "/:index-name/"
 
 The index detail returns the name and ID of the index, as well as a paginated list of documents associated with the index. The index can be re-named by POSTing a `name` to this URL.
 
@@ -197,7 +197,7 @@ Response:
 {"success": true}
 ```
 
-### Index search: "/<index names>/search/"
+### Index search: "/:index-name/search/"
 
 Perform a search of documents associated with the given index. Results are returned as a paginated list of documents.
 
@@ -349,7 +349,7 @@ Response on creating a new document:
 }
 ```
 
-### Document detail: "/documents/<document id>/"
+### Document detail: "/documents/:document-id/"
 
 The document detail endpoint returns document content, indexes, and metadata. Documents can be updated or deleted by using `POST` and `DELETE` requests, respectively. When updating a document, you can update the `content`, `index(es)`, and/or `metadata`. If you choose to update metadata, all current metadata for the document will be removed, so it's really more of a "replace" than an "update".
 
