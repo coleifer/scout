@@ -513,7 +513,7 @@ def search(index_name):
 
     filters = dict(
         (key, value) for key, value in request.args.items()
-        if key not in ('page', 'q', 'key'))
+        if key not in ('page', 'q', 'key', 'ranking'))
 
     index = get_object_or_404(Index, Index.name == index_name)
     query = index.search(search_query, ranking, **filters)

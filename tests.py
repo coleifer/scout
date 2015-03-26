@@ -467,6 +467,11 @@ class TestSearchViews(BaseTestCase):
         response = self.search('idx', 'missing')
         self.assertEqual(len(response['documents']), 0)
 
+        response = self.search('idx', 'nug', ranking='bm25')
+        doc = response['documents'][0]
+        self.assertEqual(doc['content'], 'document nug nugs')
+        self.assertEqual(round(doc['score'], 3), 2.891)
+
     def test_search_filters(self):
         idx = Index.create(name='idx')
         data = (
