@@ -24,7 +24,7 @@ setup(
     install_requires=[
         'flask',
         'peewee>=2.4'],
-    py_modules=['scout'],
+    py_modules=['scout', 'scout_client'],
     scripts=['scout.py'],
     test_suite='tests',
 )
