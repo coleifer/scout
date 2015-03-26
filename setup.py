@@ -6,11 +6,17 @@ readme_file = os.path.join(cur_dir, 'README.md')
 with open(readme_file) as fh:
     readme = fh.read()
 
+try:
+    import scout
+    VERSION = scout.__version__
+except ImportError:
+    VERSION = '0.1.3'
+
 setup(
     name='scout',
     description='scout',
     long_description=readme,
-    version=__import__('scout').__version__,
+    version=VERSION,
     author='Charles Leifer',
     author_email='coleifer@gmail.com',
     url='http://github.com/coleifer/scout/',
