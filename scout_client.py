@@ -28,13 +28,13 @@ class Scout(object):
         fh = urllib2.urlopen(request)
         return json.loads(fh.read())
 
-    def post(self, url, **kwargs):
+    def post(self, url, data=None):
         headers = {'Content-Type': 'application/json'}
         if self.key:
             headers['key'] = self.key
         request = urllib2.Request(
             self.get_full_url(url),
-            data=json.dumps(kwargs),
+            data=json.dumps(data or {}),
             headers=headers)
         fh = urllib2.urlopen(request)
         return json.loads(fh.read())
