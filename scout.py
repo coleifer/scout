@@ -47,6 +47,15 @@ database = SqliteExtDatabase(None)
 #
 
 class Document(FTSModel):
+    """
+    The :py:class:`Document` class contains content which should be indexed
+    for search. Documents can be associated with any number of indexes via
+    the `IndexDocument` junction table. Because `Document` is implemented
+    as an FTS3 virtual table, it does not support any secondary indexes, and
+    all columns have *Text* type, regardless of their declared type. For that
+    reason we will utilize the internal SQLite `rowid` column to relate
+    documents to indexes.
+    """
     rowid = RowIDField()
     content = TextField()
 
@@ -56,6 +65,7 @@ class Document(FTSModel):
 
     @classmethod
     def all(cls):
+        # Explicitly select the `rowid`, otherwise it would not be selected.
         return Document.select(Document.rowid, Document.content)
 
     def get_metadata(self):
@@ -89,9 +99,14 @@ class BaseModel(Model):
 
 
 class Metadata(BaseModel):
+    """
+    Arbitrary key/value pairs associated with an indexed `Document`. The
+    metadata associated with a document can also be used to filter search
+    results.
+    """
     document = ForeignKeyField(Document, related_name='metadata_set')
     key = CharField()
-    value = CharField()
+    value = TextField()
 
     class Meta:
         db_table = 'main_metadata'
@@ -101,6 +116,10 @@ class Metadata(BaseModel):
 
 
 class Index(BaseModel):
+    """
+    Indexes contain any number of documents and expose a clean API for
+    searching and storing content.
+    """
     RANK_SIMPLE = 'simple'
     RANK_BM25 = 'bm25'
     RANK_NONE = None
@@ -185,6 +204,10 @@ class IndexDocument(BaseModel):
 #
 
 def parse_post(required_keys=None, optional_keys=None):
+    """
+    Clean and validate POSTed JSON data by defining sets of required and
+    optional keys.
+    """
     try:
         data = json.loads(request.data)
     except ValueError:
@@ -213,6 +236,10 @@ class InvalidRequestException(Exception):
         return jsonify({'error': self.error_message}), 400
 
 def error(message):
+    """
+    Trigger an Exception from a view that will short-circuit the Response
+    cycle and return a 400 "Bad request" with the given error message.
+    """
     raise InvalidRequestException(message)
 
 def validate_indexes(data, required=True):
@@ -318,10 +345,11 @@ def index_list():
 @protect_view
 def index_detail(index_name):
     """
-    Detail view for an index. This view simply returns a JSON object with
-    the index's id, name, and number of documents.
+    Detail view for an index. This view returns a JSON object with
+    the index's id, name, and a paginated list of associated documents.
 
-    Existing indexes can be renamed using this view by POSTing a `name`.
+    Existing indexes can be renamed using this view by `POST`-ing a
+    `name`, or deleted by issuing a `DELETE` request.
     """
     index = get_object_or_404(Index, Index.name == index_name)
     if request.method == 'POST':
@@ -361,7 +389,8 @@ def document_list():
     """
     Returns a paginated list of documents.
 
-    Documents can be indexed by POSTing content.
+    Documents can be indexed by `POST`ing content, index(es) and,
+    optionally, metadata.
     """
     if request.method == 'POST':
         data = parse_post(['content'], ['index', 'indexes', 'metadata'])
@@ -408,7 +437,9 @@ def document_list():
 @protect_view
 def document_detail(document_id):
     """
-    Return the details for an individual document.
+    Return the details for an individual document. This view can also be
+    used to update the `content`, `index(es)` and, optionally, `metadata`.
+    To remove a document, issue a `DELETE` request to this view.
     """
     document = get_object_or_404(
         Document.all(),
@@ -469,6 +500,9 @@ def document_detail(document_id):
 @app.route('/<index_name>/search/', methods=['GET'])
 @protect_view
 def search(index_name):
+    """
+    Search the index for documents matching the given query.
+    """
     if not request.args.get('q'):
         error('Missing required search parameter "q".')
 
@@ -479,7 +513,7 @@ def search(index_name):
 
     filters = dict(
         (key, value) for key, value in request.args.items()
-        if key not in ('page', 'q'))
+        if key not in ('page', 'q', 'key'))
 
     index = get_object_or_404(Index, Index.name == index_name)
     query = index.search(search_query, ranking, **filters)

@@ -413,6 +413,43 @@ Response:
 {"success": true}
 ```
 
+### Example of using Authentication
+
+Scout provides very basic key-based authentication. You can specify a single, global key which must be specified in order to access the API.
+
+To specify the API key, you can pass it in on the command-line or specify it in a configuration file (described below).
+
+Example of running scout with an API key:
+
+```console
+$ python scout.py -k secret /path/to/search.db
+```
+
+If we try to access the API without specifying the key, we get a `401` response stating *Invalid API key*:
+
+```console
+$ curl localhost:8000/
+Invalid API key
+```
+
+We can specify the key as a header:
+
+```console
+$ curl -H "key: secret" localhost:8000/
+{
+  "indexes": []
+}
+```
+
+Alternatively, the key can be specified as a `GET` argument:
+
+```console
+$ curl localhost:8000/?key=secret
+{
+  "indexes": []
+}
+```
+
 ## Configuration and Command-line Options
 
 The easiest way to run Scout is to invoke it directly from the command-line, passing the database in as the last argument:
