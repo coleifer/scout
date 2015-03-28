@@ -10,7 +10,7 @@ try:
     import scout
     VERSION = scout.__version__
 except ImportError:
-    VERSION = '0.1.3'
+    VERSION = '0.1.4'
 
 setup(
     name='scout',
