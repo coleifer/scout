@@ -43,7 +43,7 @@ class Scout(object):
         headers = {}
         if self.key:
             headers['key'] = self.key
-        request = urllib2.Request(self.get_full_url(url))
+        request = urllib2.Request(self.get_full_url(url), headers=headers)
         request.get_method = lambda: 'DELETE'
         fh = urllib2.urlopen(request)
         return json.loads(fh.read())
