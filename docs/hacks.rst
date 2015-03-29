@@ -1,7 +1,7 @@
  .. _hacks:
 
- Hacks
- =====
+Hacks
+=====
 
 In this document you will find some of the hacks users of Scout have come up with to do novel things.
 
