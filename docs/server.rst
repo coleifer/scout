@@ -167,8 +167,10 @@ Parameters:
 * ``q``: contains the search query.
 * ``page``: the page number of results to display. If not present, the first page will be displayed.
 * ``ranking``: the ranking algorithm to use for scoring the entries. By default the simple method will be used, but if you are using a newer version of SQLite that supports FTS4, you can also use the bm25 algorithm.
-    * ``simple`` (default): use a simple, efficient ranking algorithm.
-    * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4.
+
+  * ``simple`` (default): use a simple, efficient ranking algorithm.
+  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4.
+
 * arbitrary key/value pairs: used to match document *metadata*. Only documents whose metadata matches the key/value pairs will be included.
 
 Example search:
