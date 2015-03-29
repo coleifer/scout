@@ -30,6 +30,7 @@ Contents:
    server
    client
    deployment
+   hacks
 
 
 Indices and tables
