@@ -399,14 +399,18 @@ class TestSearchViews(BaseTestCase):
         idx = Index.create(name='idx')
         alt_idx = Index.create(name='alt-idx')
 
-        d1 = idx.index('doc 1')
-        d2 = idx.index('doc 2')
-        alt_idx.index(d1.content, d1)
-        alt_idx.index(d2.content, d2)
+        d1 = idx.index('doc 1', k1='v1', k2='v2')
+        d2 = idx.index('doc 2', k3='v3')
+        alt_idx.add_to_index(d1)
+        alt_idx.add_to_index(d2)
+
+        self.assertEqual(Metadata.select().count(), 3)
 
         response = self.app.delete('/documents/%s/' % d2.rowid)
         data = json.loads(response.data)
         self.assertEqual(data, {'success': True})
+
+        self.assertEqual(Metadata.select().count(), 2)
 
         response = self.app.delete('/documents/%s/' % d2.rowid)
         self.assertEqual(response.status_code, 404)

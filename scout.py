@@ -451,6 +451,7 @@ def document_detail(document_id):
              .delete()
              .where(IndexDocument.document == document)
              .execute())
+            Metadata.delete().where(Metadata.document == document).execute()
             document.delete_instance()
         return jsonify({'success': True})
 
