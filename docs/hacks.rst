@@ -5,12 +5,12 @@ Hacks
 
 In this document you will find some of the hacks users of Scout have come up with to do novel things.
 
-Most of these techniques involve wrapping the Scout server application with an additional module. Since Scout server is a normal Pyhton module, and the WSGI app is just an object within that module, there is no magic needed to extend the behavior of Scout.
+Most of these techniques involve wrapping the Scout server application with an additional module. Since Scout server is a normal Python module, and the WSGI app is just an object within that module, there is no magic needed to extend the behavior of Scout.
 
 Adding CORS headers
 -------------------
 
-I wanted to be able to query my Scout index from JavaScript running on a different host. To get this working i needed to add some special headers to each response from the API (`more info on CORS <https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS>`_).
+I wanted to be able to query my Scout index from JavaScript running on a different host. To get this working I needed to add some special headers to each response from the API (`more info on CORS <https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS>`_).
 
 To accomplish this I created a wrapper module that wraps the Scout server Flask app and implements a special ``after_request`` hook:
 
