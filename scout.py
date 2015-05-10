@@ -5,7 +5,7 @@ RESTful search server powered by SQLite's full-text search extension.
 """
 __author__ = 'Charles Leifer'
 __kitty__ = 'Huey'
-__version__ = '0.1.6'
+__version__ = '0.2.0'
 
 try:
     from functools import reduce
@@ -58,6 +58,7 @@ class Document(FTSModel):
     """
     rowid = RowIDField()
     content = TextField()
+    identifier = TextField()
 
     class Meta:
         database = database
@@ -66,7 +67,10 @@ class Document(FTSModel):
     @classmethod
     def all(cls):
         # Explicitly select the `rowid`, otherwise it would not be selected.
-        return Document.select(Document.rowid, Document.content)
+        return Document.select(
+            Document.rowid,
+            Document.content,
+            Document.identifier)
 
     def get_metadata(self):
         return dict(Metadata
@@ -135,7 +139,7 @@ class Index(BaseModel):
         elif ranking == Index.RANK_BM25:
             rank_expr = Document.bm25(Document.content)
 
-        selection = [Document.rowid, Document.content]
+        selection = [Document.rowid, Document.content, Document.identifier]
         if ranking:
             selection.append(rank_expr.alias('score'))
 
@@ -168,12 +172,13 @@ class Index(BaseModel):
             except IntegrityError:
                 pass
 
-    def index(self, content, document=None, **metadata):
+    def index(self, content, document=None, identifier=None, **metadata):
         if document is None:
             document = Document()
         else:
             del document.metadata
         document.content = content
+        document.identifier = identifier
         document.save()
         self.add_to_index(document)
 
@@ -276,7 +281,10 @@ def _serialize_documents(document_query, include_score=False):
         Index)
     document_list = []
     for document in documents:
-        data = {'id': document.rowid, 'content': document.content}
+        data = {
+            'id': document.rowid,
+            'identifier': document.identifier,
+            'content': document.content}
         data['metadata'] = dict(
             (metadata.key, metadata.value)
             for metadata in document.metadata_set_prefetch)
@@ -393,13 +401,17 @@ def document_list():
     optionally, metadata.
     """
     if request.method == 'POST':
-        data = parse_post(['content'], ['index', 'indexes', 'metadata'])
+        data = parse_post(
+            ['content'],
+            ['identifier', 'index', 'indexes', 'metadata'])
 
         indexes = validate_indexes(data)
         if indexes is None:
             error('You must specify either an "index" or "indexes".')
 
-        document = Document.create(content=data['content'])
+        document = Document.create(
+            content=data['content'],
+            identifier=data.get('identifier'))
 
         if data.get('metadata'):
             document.metadata = data['metadata']
@@ -444,7 +456,17 @@ def document_detail(document_id):
     document = get_object_or_404(
         Document.all(),
         Document.rowid == document_id)
+    return _document_detail(document)
 
+@app.route('/documents/identifier/<identifier>/', methods=['GET', 'POST', 'DELETE'])
+@protect_view
+def document_by_identifier(identifier):
+    document = get_object_or_404(
+        Document.all(),
+        Document.identifier == identifier)
+    return _document_detail(document)
+
+def _document_detail(document):
     if request.method == 'DELETE':
         with database.atomic():
             (IndexDocument
@@ -456,9 +478,20 @@ def document_detail(document_id):
         return jsonify({'success': True})
 
     elif request.method == 'POST':
-        data = parse_post([], ['content', 'index', 'indexes', 'metadata'])
-        if data.get('content'):
-            document.content = data['content']
+        data = parse_post([], [
+            'content',
+            'identifier',
+            'index',
+            'indexes',
+            'metadata'])
+
+        dirty = False
+        for key in ('content', 'identifier'):
+            if data.get(key):
+                setattr(document, key, data[key])
+                dirty = True
+
+        if dirty:
             document.save()
 
         if 'metadata' in data:
@@ -493,6 +526,7 @@ def document_detail(document_id):
 
     return jsonify({
         'id': document.rowid,
+        'identifier': document.identifier,
         'content': document.content,
         'indexes': index_names,
         'metadata': document.metadata,

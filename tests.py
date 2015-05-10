@@ -238,6 +238,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(doc, {
             'content': 'document-0',
             'id': 1,
+            'identifier': None,
             'indexes': ['idx-a'],
             'metadata': {'foo': 'bar-0'}})
 
@@ -256,6 +257,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(doc, {
             'content': 'both-doc',
             'id': 12,
+            'identifier': None,
             'indexes': ['idx-b', 'idx-a'],
             'metadata': {}})
 
@@ -342,6 +344,21 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(data, {
             'content': 'test doc',
             'id': doc.rowid,
+            'identifier': None,
+            'indexes': ['idx'],
+            'metadata': {'foo': 'bar'}})
+
+    def test_document_detail_by_identifier(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('test doc', identifier='td', foo='bar')
+        alt_doc = idx.index('alt doc', identifier='ad')
+
+        response = self.app.get('/documents/identifier/td/')
+        data = json.loads(response.data)
+        self.assertEqual(data, {
+            'content': 'test doc',
+            'id': doc.rowid,
+            'identifier': doc.identifier,
             'indexes': ['idx'],
             'metadata': {'foo': 'bar'}})
 
@@ -455,6 +472,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(doc1, {
             'content': 'document nug nugs',
             'id': doc1['id'],
+            'identifier': None,
             'indexes': ['idx'],
             'metadata': {'special': 'True'},
             'score': doc1['score']})
@@ -463,6 +481,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(doc2, {
             'content': 'document blah nuggie foo',
             'id': doc2['id'],
+            'identifier': None,
             'indexes': ['idx'],
             'metadata': {'special': 'True'},
             'score': doc2['score']})
