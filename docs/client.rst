@@ -90,34 +90,40 @@ Scout comes with a simple Python client. This document describes the client API.
             {u'documents': [
                 {u'content': u'The Rendlesham forest incident is one of the most interesting UFO accounts.',
                  u'id': 1,
+                 u'identifier': None,
                  u'indexes': [u'vault'],
                  u'metadata': {u'type': u'ufo'}},
                 {u'content': u'Huey is not very interested in UFOs.',
                  u'id': 2,
+                 u'identifier': None,
                  u'indexes': [u'vault'],
                  u'metadata': {u'type': u'huey'}},
                 {u'content': u'Sometimes I wonder if huey is an alien.',
                  u'id': 3,
+                 u'identifier': None,
                  u'indexes': [u'vault'],
                  u'metadata': {u'type': u'huey'}},
                 {u'content': u"The Chicago O'Hare UFO incident is also intriguing.",
                  u'id': 4,
+                 u'identifier': None,
                  u'indexes': [u'vault'],
                  u'metadata': {u'type': u'ufo'}},
                 {u'content': u'Testing the test index',
                  u'id': 5,
+                 u'identifier': None,
                  u'indexes': [u'test-index'],
                  u'metadata': {}}
              ],
              u'page': 1,
              u'pages': 1}
 
-    .. py:method:: store_document(content, indexes, **metadata)
+    .. py:method:: store_document(content, indexes[, identifier=None[, **metadata]])
 
         Store a document in the specified index(es).
 
         :param str content: Text content to expose for search.
         :param indexes: Either the name of an index or a list of index names.
+        :param identifier: Optional alternative user-defined identifier for document.
         :param metadata: Arbitrary key/value pairs to store alongside the document content.
 
         .. code-block:: pycon
@@ -129,7 +135,7 @@ Scout comes with a simple Python client. This document describes the client API.
              u'indexes': [u'test-index'],
              u'metadata': {u'foo': u'bar'}}
 
-    .. py:method:: update_document(document_id[, content=None[, indexes=None[, [metadata=None]]]])
+    .. py:method:: update_document([document_id=None[, content=None[, indexes=None[, metadata=None[, identifier=None]]]]])
 
         Update one or more attributes of a document that's stored in the database.
 
@@ -137,8 +143,11 @@ Scout comes with a simple Python client. This document describes the client API.
         :param str content: Text content to expose for search (optional).
         :param indexes: Either the name of an index or a list of index names (optional).
         :param metadata: Arbitrary key/value pairs to store alongside the document content (optional).
+        :param identifier: Optional alternative user-defined identifier for document.
 
         .. note:: If you specify metadata when updating a document, existing metadata will be replaced by the new metadata. To simply clear out the metadata for an existing document, pass an empty ``dict``.
+
+        .. note:: Either `document_id` or `identifier` must be provided.
 
         Example:
 
@@ -151,11 +160,14 @@ Scout comes with a simple Python client. This document describes the client API.
              u'indexes': [u'test-index'],
              u'metadata': {u'foo': u'bar'}}
 
-    .. py:method:: delete_document(document_id)
+    .. py:method:: delete_document([document_id=None[, identifier=None]])
 
         Remove a document from the database, as well as all indexes.
 
         :param int document_id: The integer document ID.
+        :param identifier: Optional alternative user-defined identifier for document.
+
+        .. note:: Either `document_id` or `identifier` must be provided.
 
         Example:
 
