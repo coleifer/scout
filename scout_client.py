@@ -63,16 +63,20 @@ class Scout(object):
     def get_documents(self, **kwargs):
         return self.get('/documents/', **kwargs)
 
-    def store_document(self, content, indexes, **metadata):
+    def store_document(self, content, indexes, identifier=None, **metadata):
         if not isinstance(indexes, (list, tuple)):
             indexes = [indexes]
         return self.post('/documents/', {
             'content': content,
+            'identifier': identifier,
             'indexes': indexes,
             'metadata': metadata})
 
-    def update_document(self, document_id, content=None, indexes=None,
-                        metadata=None):
+    def update_document(self, document_id=None, content=None, indexes=None,
+                        metadata=None, identifier=None):
+        if not document_id and not identifier:
+            raise ValueError('`document_id` or `identifier` must be provided.')
+
         data = {}
         if content is not None:
             data['content'] = content
@@ -86,10 +90,19 @@ class Scout(object):
         if not data:
             raise ValueError('Nothing to update.')
 
-        return self.post('/documents/%s/' % document_id, data)
+        if document_id:
+            return self.post('/documents/%s/' % document_id, data)
+        else:
+            return self.post('/documents/identifier/%s/' % identifier, data)
 
-    def delete_document(self, document_id):
-        return self.delete('/documents/%s/' % document_id)
+    def delete_document(self, document_id=None, identifier=None):
+        if not document_id and not identifier:
+            raise ValueError('`document_id` or `identifier` must be provided.')
+
+        if document_id:
+            return self.delete('/documents/%s/' % document_id)
+        else:
+            return self.delete('/documents/identifier/%s/' % identifier)
 
     def search(self, index, query, **kwargs):
         kwargs['q'] = query
