@@ -16,9 +16,9 @@ def panic(s):
     sys.exit(1)
 
 if __name__ == '__main__':
-    if len(sys.argv) != 1:
+    if len(sys.argv) != 2:
         panic('Missing path to database file.')
-    filename = sys.argv[0]
+    filename = sys.argv[1]
     if not os.path.isfile(filename):
         panic('"%s" not found or is not a file.' % filename)
     main(filename)
