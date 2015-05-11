@@ -434,6 +434,9 @@ def document_list():
                  .join(Index)
                  .where(Index.name == request.args['index']))
 
+    if request.args.get('identifier'):
+        query = query.where(Document.identifier == request.args['identifier'])
+
     pq = PaginatedQuery(
         query,
         paginate_by=app.config['PAGINATE_BY'],

@@ -104,6 +104,15 @@ class Scout(object):
         else:
             return self.delete('/documents/identifier/%s/' % identifier)
 
+    def get_document(self, document_id=None, identifier=None):
+        if not document_id and not identifier:
+            raise ValueError('`document_id` or `identifier` must be provided.')
+
+        if document_id:
+            return self.get('/documents/%s/' % document_id)
+        else:
+            return self.get('/documents/identifier/%s/' % identifier)
+
     def search(self, index, query, **kwargs):
         kwargs['q'] = query
         return self.get('/%s/search/' % index, **kwargs)
