@@ -3,10 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Scout
-=====
-
-.. image:: http://media.charlesleifer.com/blog/photos/thumbnails/scout_800x800.png
+.. image:: http://media.charlesleifer.com/blog/photos/scout-logo.png
 
 Scout is a RESTful search server written in Python. The search is powered by `SQLite's full-text search extension <http://sqlite.org/fts3.html>`_, and the web application utilizes the `Flask <http://flask.pocoo.org>`_ framework.
 

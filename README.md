@@ -1,4 +1,4 @@
-![](http://media.charlesleifer.com/blog/photos/scout.png)
+![](http://media.charlesleifer.com/blog/photos/scout-logo.png)
 
 [scout](http://scout.readthedocs.org/en/latest/) is a RESTful search server written in Python. The search is powered by [SQLite's full-text search extension](http://sqlite.org/fts3.html), and the web application utilizes the [Flask](http://flask.pocoo.org) framework.
 
