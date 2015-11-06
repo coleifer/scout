@@ -16,6 +16,10 @@ import json
 import operator
 import optparse
 import os
+try:
+    import sqlite3
+except ImportError:
+    from pysqlite2 import dbapi2 as sqlite3
 import sys
 
 from flask import abort, Flask, jsonify, request, Response
@@ -27,9 +31,31 @@ from playhouse.sqlite_ext import _VirtualFieldMixin
 from werkzeug.serving import run_simple
 
 
+def check_fts5():
+    try:
+        FTS5Model
+    except NameError:
+        return False
+    if sqlite3.sqlite_version_info < (3, 9):
+        return False
+    tmp_db = SqliteExtDatabase(':memory:')
+    try:
+        tmp_db.execute_sql('CREATE VIRTUAL TABLE foo USING fts5 (data)')
+    except:
+        try:
+            sqlite3.enable_load_extension(True)
+            sqlite3.load_extension('fts5')
+        except:
+            return False
+    finally:
+        tmp_db.close()
+    return True
+
+
 AUTHENTICATION = None
 DATABASE = None
 DEBUG = False
+FTS5 = check_fts5()  # Use SQLite FTS5 extension.
 HOST = '127.0.0.1'
 PAGE_VAR = 'page'
 PAGINATE_BY = 50
@@ -46,7 +72,16 @@ database = SqliteExtDatabase(None)
 # Database models.
 #
 
-class Document(FTSModel):
+if app.config.get('FTS5'):
+    FTSBaseModel = FTS5Model
+    SearchField = BareField
+    ModelOptions = {'prefix': '2,3', 'tokenize': "'porter unicode61'"}
+else:
+    FTSBaseModel = FTSModel
+    SearchField = TextField
+    ModelOptions = {'tokenize': 'porter'}
+
+class Document(FTSBaseModel):
     """
     The :py:class:`Document` class contains content which should be indexed
     for search. Documents can be associated with any number of indexes via
@@ -57,12 +92,13 @@ class Document(FTSModel):
     documents to indexes.
     """
     rowid = RowIDField()
-    content = TextField()
-    identifier = TextField()
+    content = SearchField()
+    identifier = SearchField()
 
     class Meta:
         database = database
         db_table = 'main_document'
+        options = ModelOptions
 
     @classmethod
     def all(cls):
