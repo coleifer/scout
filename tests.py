@@ -4,6 +4,7 @@ import sys
 import unittest
 import urllib
 
+from playhouse.sqlite_ext import *
 from playhouse.test_utils import assert_query_count
 
 from scout import app
@@ -24,21 +25,10 @@ def get_option_parser():
     return parser
 
 
+IS_FTS5 = app.config['SEARCH_EXTENSION'] == 'FTS5'
+
+
 class BaseTestCase(unittest.TestCase):
-    def setUp(self):
-        database.drop_tables([
-            Document,
-            Metadata,
-            Index,
-            IndexDocument], safe=True)
-
-        Document.create_table(tokenize='porter')
-        database.create_tables([
-            Metadata,
-            Index,
-            IndexDocument])
-
-class TestModelAPIs(BaseTestCase):
     corpus = [
         ('A faith is a necessity to a man. Woe to him who believes in '
          'nothing.'),
@@ -54,6 +44,21 @@ class TestModelAPIs(BaseTestCase):
     ]
 
     def setUp(self):
+        database.drop_tables([
+            Document,
+            Metadata,
+            Index,
+            IndexDocument], safe=True)
+
+        database.create_tables([
+            Document,
+            Metadata,
+            Index,
+            IndexDocument])
+
+
+class TestModelAPIs(BaseTestCase):
+    def setUp(self):
         super(TestModelAPIs, self).setUp()
         self.index = Index.create(name='default')
 
@@ -67,14 +72,14 @@ class TestModelAPIs(BaseTestCase):
         doc = self.index.index(content=content)
 
         # Verify document properties.
-        self.assertEqual(doc.rowid, 1)
+        self.assertEqual(doc.get_id(), 1)
         self.assertEqual(doc.content, content)
         self.assertEqual(doc.metadata, {})
 
         # Verify through relationship properties.
         self.assertEqual(IndexDocument.select().count(), 1)
         idx_doc = IndexDocument.get()
-        self.assertEqual(idx_doc._data['document'], doc.rowid)
+        self.assertEqual(idx_doc._data['document'], doc.get_id())
         self.assertEqual(idx_doc._data['index'], self.index.id)
 
     def test_index_with_metadata(self):
@@ -83,7 +88,7 @@ class TestModelAPIs(BaseTestCase):
         value metadata, which is stored as strings.
         """
         doc = self.index.index('test doc', foo='bar', nugget=33)
-        self.assertEqual(doc.rowid, 1)
+        self.assertEqual(doc.get_id(), 1)
         self.assertEqual(doc.metadata, {'foo': 'bar', 'nugget': '33'})
 
     def test_reindex(self):
@@ -92,8 +97,10 @@ class TestModelAPIs(BaseTestCase):
         content and metadata in the process.
         """
         doc = self.index.index('test doc', foo='bar', baze='nug')
-        doc_db = Document.select(Document.rowid, Document.content).get()
-        self.assertTrue(doc_db.rowid is not None)
+        doc_db = (Document
+                  .select(Document._meta.primary_key, Document.content)
+                  .get())
+        self.assertTrue(doc_db.get_id() is not None)
         self.assertEqual(doc_db.content, 'test doc')
         self.assertEqual(doc_db.metadata, {'foo': 'bar', 'baze': 'nug'})
 
@@ -105,15 +112,17 @@ class TestModelAPIs(BaseTestCase):
         self.assertEqual(Document.select().count(), 1)
         self.assertEqual(updated_doc.metadata, {'foo': 'bazz', 'nug': 'x'})
 
-        u_doc_db = Document.select(Document.rowid, Document.content).get()
+        u_doc_db = (Document
+                    .select(Document._meta.primary_key, Document.content)
+                    .get())
         self.assertEqual(u_doc_db.content, 'updated doc')
-        self.assertEqual(u_doc_db.rowid, doc_db.rowid)
+        self.assertEqual(u_doc_db.get_id(), doc_db.get_id())
         self.assertEqual(u_doc_db.metadata, {'foo': 'bazz', 'nug': 'x'})
 
         # Verify through relationship properties.
         self.assertEqual(IndexDocument.select().count(), 1)
         idx_doc = IndexDocument.get()
-        self.assertEqual(idx_doc._data['document'], u_doc_db.rowid)
+        self.assertEqual(idx_doc._data['document'], u_doc_db.get_id())
         self.assertEqual(idx_doc._data['index'], self.index.id)
 
     def test_multi_index(self):
@@ -139,9 +148,9 @@ class TestModelAPIs(BaseTestCase):
                  .dicts())
         idx_doc_data = [idx_doc for idx_doc in query]
         self.assertEqual(idx_doc_data, [
-            {'document': document.rowid, 'name': 'idx-0'},
-            {'document': document.rowid, 'name': 'idx-1'},
-            {'document': document.rowid, 'name': 'idx-2'},
+            {'document': document.get_id(), 'name': 'idx-0'},
+            {'document': document.get_id(), 'name': 'idx-1'},
+            {'document': document.get_id(), 'name': 'idx-2'},
         ])
 
     def test_search(self):
@@ -152,7 +161,7 @@ class TestModelAPIs(BaseTestCase):
         for idx, content in enumerate(self.corpus):
             self.index.index(content=content)
 
-        def assertSearch(phrase, indexes, ranking=Index.RANK_SIMPLE):
+        def assertSearch(phrase, indexes, ranking=Index.RANK_BM25):
             results = [doc.content
                        for doc in self.index.search(phrase, ranking)]
             self.assertEqual(results, [self.corpus[idx] for idx in indexes])
@@ -165,7 +174,7 @@ class TestModelAPIs(BaseTestCase):
         assertSearch('', [])
 
         assertSearch('believe', [3, 0], Index.RANK_BM25)  # Same result.
-        assertSearch('faith thing', [2, 4], Index.RANK_BM25)  # Swapped.
+        assertSearch('faith thing', [4, 2], Index.RANK_BM25)  # Swapped.
         assertSearch('things', [4, 2], Index.RANK_BM25)  # Same result.
         assertSearch('blah', [], Index.RANK_BM25)  # No results, works.
         assertSearch('', [], Index.RANK_BM25)
@@ -339,11 +348,11 @@ class TestSearchViews(BaseTestCase):
         doc = idx.index('test doc', foo='bar')
         alt_doc = idx.index('alt doc')
 
-        response = self.app.get('/documents/%s/' % doc.rowid)
+        response = self.app.get('/documents/%s/' % doc.get_id())
         data = json.loads(response.data)
         self.assertEqual(data, {
             'content': 'test doc',
-            'id': doc.rowid,
+            'id': doc.get_id(),
             'identifier': None,
             'indexes': ['idx'],
             'metadata': {'foo': 'bar'}})
@@ -357,13 +366,16 @@ class TestSearchViews(BaseTestCase):
         data = json.loads(response.data)
         self.assertEqual(data, {
             'content': 'test doc',
-            'id': doc.rowid,
+            'id': doc.get_id(),
             'identifier': doc.identifier,
             'indexes': ['idx'],
             'metadata': {'foo': 'bar'}})
 
     def refresh_doc(self, doc):
-        return Document.all().where(Document.rowid == doc.rowid).get()
+        return (Document
+                .all()
+                .where(Document._meta.primary_key == doc.get_id())
+                .get())
 
     def test_document_detail_post(self):
         idx = Index.create(name='idx')
@@ -371,7 +383,7 @@ class TestSearchViews(BaseTestCase):
         doc = idx.index('test doc', foo='bar', nug='baze')
         alt_doc = idx.index('alt doc')
 
-        url = '/documents/%s/' % doc.rowid
+        url = '/documents/%s/' % doc.get_id()
 
         def assertDoc(doc, content, metadata=None, indexes=None):
             doc_db = self.refresh_doc(doc)
@@ -423,21 +435,26 @@ class TestSearchViews(BaseTestCase):
 
         self.assertEqual(Metadata.select().count(), 3)
 
-        response = self.app.delete('/documents/%s/' % d2.rowid)
+        response = self.app.delete('/documents/%s/' % d2.get_id())
         data = json.loads(response.data)
         self.assertEqual(data, {'success': True})
 
         self.assertEqual(Metadata.select().count(), 2)
 
-        response = self.app.delete('/documents/%s/' % d2.rowid)
+        response = self.app.delete('/documents/%s/' % d2.get_id())
         self.assertEqual(response.status_code, 404)
 
         self.assertEqual(Document.select().count(), 1)
         self.assertEqual(IndexDocument.select().count(), 2)
-        self.assertEqual([d.rowid for d in idx.documents], [d1.rowid])
-        self.assertEqual([d.rowid for d in alt_idx.documents], [d1.rowid])
+        self.assertEqual(
+            [d.get_id() for d in idx.documents],
+            [d1.get_id()])
+        self.assertEqual(
+            [d.get_id() for d in alt_idx.documents],
+            [d1.get_id()])
 
     def search(self, index, query, page=1, **filters):
+        filters.setdefault('ranking', Index.RANK_BM25)
         params = urllib.urlencode(dict(filters, q=query, page=page))
         response = self.app.get('/%s/search/?%s' % (index, params))
         return json.loads(response.data)
@@ -457,9 +474,6 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(response['pages'], 2)
         self.assertEqual(len(response['documents']), 10)
 
-        first_doc = response['documents'][0]
-        self.assertEqual(round(first_doc['score'], 3), .059)
-
         response = self.search('idx', 'document', 2)
         self.assertEqual(len(response['documents']), 7)
 
@@ -469,6 +483,9 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(len(response['documents']), 2)
         doc1, doc2 = response['documents']
 
+        if not IS_FTS5:
+            doc1, doc2 = doc2, doc1
+
         self.assertEqual(doc1, {
             'content': 'document nug nugs',
             'id': doc1['id'],
@@ -476,7 +493,11 @@ class TestSearchViews(BaseTestCase):
             'indexes': ['idx'],
             'metadata': {'special': 'True'},
             'score': doc1['score']})
-        self.assertEqual(round(doc1['score'], 4), .7255)
+
+        if IS_FTS5:
+            self.assertEqual(round(doc1['score'], 4), -2.2675)
+        else:
+            self.assertEqual(round(doc1['score'], 4), 5.9032)
 
         self.assertEqual(doc2, {
             'content': 'document blah nuggie foo',
@@ -485,7 +506,11 @@ class TestSearchViews(BaseTestCase):
             'indexes': ['idx'],
             'metadata': {'special': 'True'},
             'score': doc2['score']})
-        self.assertEqual(round(doc2['score'], 4), .3922)
+
+        if IS_FTS5:
+            self.assertEqual(round(doc2['score'], 4), -1.3588)
+        else:
+            self.assertEqual(round(doc2['score'], 4), 5.0463)
 
         response = self.search('idx', 'missing')
         self.assertEqual(len(response['documents']), 0)
@@ -493,7 +518,10 @@ class TestSearchViews(BaseTestCase):
         response = self.search('idx', 'nug', ranking='bm25')
         doc = response['documents'][0]
         self.assertEqual(doc['content'], 'document nug nugs')
-        self.assertEqual(round(doc['score'], 3), 2.891)
+        if IS_FTS5:
+            self.assertEqual(round(doc['score'], 3), -2.98)
+        else:
+            self.assertEqual(round(doc['score'], 3), -2.891)
 
     def test_search_filters(self):
         idx = Index.create(name='idx')
@@ -513,18 +541,15 @@ class TestSearchViews(BaseTestCase):
                        for document in results['documents']]
             self.assertEqual(content, expected)
 
-        assertResults(
-            'huey',
-            {},
-            ['huey document', 'little huey bear', 'uncle huey'])
-        assertResults(
-            'huey',
-            {'kitty': 'yes'},
-            ['huey document', 'little huey bear'])
-        assertResults(
-            'huey',
-            {'kitty': 'yes', 'name': 'huey'},
-            ['huey document', 'little huey bear'])
+        if IS_FTS5:
+            results1 = ['huey document', 'uncle huey', 'little huey bear']
+            results2 = ['huey document', 'little huey bear']
+        else:
+            results1 = ['little huey bear', 'huey document', 'uncle huey']
+            results2 = ['little huey bear', 'huey document']
+        assertResults('huey', {}, results1)
+        assertResults('huey', {'kitty': 'yes'}, results2)
+        assertResults('huey', {'kitty': 'yes', 'name': 'huey'}, results2)
         assertResults(
             'docu*',
             {'kitty': 'yes'},
@@ -597,6 +622,12 @@ def main():
     options, args = option_parser.parse_args()
     database.init(':memory:')
     app.config['PAGINATE_BY'] = 10
+    msg = ('Testing Scout using SQLite search engine "%s"' %
+           app.config['SEARCH_EXTENSION'])
+    print msg
+    if app.config['C_EXTENSIONS'] and app.config['SEARCH_EXTENSION'] != 'FTS5':
+        print 'Peewee SQLite C extension is enabled.'
+    print '-' * len(msg)
     unittest.main(argv=sys.argv, verbosity=not options.quiet and 2 or 0)
 
 

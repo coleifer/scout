@@ -17,69 +17,78 @@ import operator
 import optparse
 import os
 try:
-    import sqlite3
+    from peewee import sqlite3
 except ImportError:
-    from pysqlite2 import dbapi2 as sqlite3
+    try:
+        from pysqlite2 import dbapi2 as sqlite3
+    except ImportError:
+        import sqlite3
 import sys
 
 from flask import abort, Flask, jsonify, request, Response
 from peewee import *
+from peewee import __version__ as peewee_version_raw
 from playhouse.flask_utils import get_object_or_404
 from playhouse.flask_utils import PaginatedQuery
 from playhouse.sqlite_ext import *
 from playhouse.sqlite_ext import _VirtualFieldMixin
+try:
+    from playhouse.sqlite_ext import FTS5Model
+except ImportError:
+    FTS5Model = None
 from werkzeug.serving import run_simple
 
 
-def check_fts5():
-    try:
-        FTS5Model
-    except NameError:
-        return False
-    if sqlite3.sqlite_version_info < (3, 9):
-        return False
-    tmp_db = SqliteExtDatabase(':memory:')
-    try:
-        tmp_db.execute_sql('CREATE VIRTUAL TABLE foo USING fts5 (data)')
-    except:
-        try:
-            sqlite3.enable_load_extension(True)
-            sqlite3.load_extension('fts5')
-        except:
-            return False
-    finally:
-        tmp_db.close()
-    return True
+peewee_version = [int(part) for part in peewee_version_raw.split('.')]
+if peewee_version < [2, 7, 0]:
+    raise RuntimeError('Peewee version 2.7.1 or newer is required for this '
+                       'version of Scout. Version found: %s.' %
+                       peewee_version_raw)
 
 
 AUTHENTICATION = None
+C_EXTENSIONS = False
 DATABASE = None
 DEBUG = False
-FTS5 = check_fts5()  # Use SQLite FTS5 extension.
+HAVE_FTS4 = FTS_VER == 'FTS4'
+HAVE_FTS5 = FTS5Model and FTS5Model.fts5_installed() or False
 HOST = '127.0.0.1'
 PAGE_VAR = 'page'
 PAGINATE_BY = 50
 PORT = 8000
+SEARCH_EXTENSION = HAVE_FTS5 and 'FTS5' or (HAVE_FTS4 and 'FTS4' or 'FTS3')
 SECRET_KEY = 'huey is a little angel.'  # Customize this.
-STEM = 'porter'
+STEM = None
 
 app = Flask(__name__)
 app.config.from_object(__name__)
+if os.environ.get('SCOUT_SETTINGS'):
+    app.config.from_envvar('SCOUT_SETTINGS')
 
-database = SqliteExtDatabase(None)
+database = SqliteExtDatabase(None, c_extensions=app.config['C_EXTENSIONS'])
 
 #
 # Database models.
 #
 
-if app.config.get('FTS5'):
+SEARCH_EXTENSION = app.config['SEARCH_EXTENSION']
+
+if SEARCH_EXTENSION == 'FTS5':
     FTSBaseModel = FTS5Model
-    SearchField = BareField
-    ModelOptions = {'prefix': '2,3', 'tokenize': "'porter unicode61'"}
+    # If we have FTS5, we can assume complex option support.
+    ModelOptions = {
+        'prefix': [2, 3],
+        'tokenize': app.config.get('STEM') or 'porter unicode61'}
 else:
     FTSBaseModel = FTSModel
-    SearchField = TextField
-    ModelOptions = {'tokenize': 'porter'}
+    if SEARCH_EXTENSION == 'FTS4':
+        ModelOptions = {
+            'prefix': [2, 3],
+            'tokenize': app.config.get('STEM') or 'porter',
+        }
+    else:
+        ModelOptions = {'tokenize': app.config.get('STEM') or 'porter'}
+
 
 class Document(FTSBaseModel):
     """
@@ -91,7 +100,6 @@ class Document(FTSBaseModel):
     reason we will utilize the internal SQLite `rowid` column to relate
     documents to indexes.
     """
-    rowid = RowIDField()
     content = SearchField()
     identifier = SearchField()
 
@@ -102,27 +110,28 @@ class Document(FTSBaseModel):
 
     @classmethod
     def all(cls):
-        # Explicitly select the `rowid`, otherwise it would not be selected.
+        # Explicitly select the docid/rowid. Since it is a virtual field, it
+        # would not normally be selected.
         return Document.select(
-            Document.rowid,
+            Document._meta.primary_key,
             Document.content,
             Document.identifier)
 
     def get_metadata(self):
         return dict(Metadata
                     .select(Metadata.key, Metadata.value)
-                    .where(Metadata.document == self.rowid)
+                    .where(Metadata.document == self.get_id())
                     .tuples())
 
     def set_metadata(self, metadata):
         (Metadata
          .insert_many([
-             {'key': key, 'value': value, 'document': self.rowid}
+             {'key': key, 'value': value, 'document': self.get_id()}
              for key, value in metadata.items()])
          .execute())
 
     def delete_metadata(self):
-        Metadata.delete().where(Metadata.document == self.rowid).execute()
+        Metadata.delete().where(Metadata.document == self.get_id()).execute()
 
     metadata = property(get_metadata, set_metadata, delete_metadata)
 
@@ -130,7 +139,7 @@ class Document(FTSBaseModel):
         return (Index
                 .select()
                 .join(IndexDocument)
-                .where(IndexDocument.document == self))
+                .where(IndexDocument.document == self.get_id()))
 
 
 class BaseModel(Model):
@@ -170,12 +179,25 @@ class Index(BaseModel):
         db_table = 'main_index'
 
     def search(self, search, ranking=RANK_SIMPLE, **filters):
-        if ranking == Index.RANK_SIMPLE:
-            rank_expr = Document.rank()
-        elif ranking == Index.RANK_BM25:
-            rank_expr = Document.bm25(Document.content)
+        if not search.strip():
+            return Document.select().where(Document._meta.primary_key == 0)
 
-        selection = [Document.rowid, Document.content, Document.identifier]
+        if ranking == Index.RANK_SIMPLE:
+            # Search only the content field, do not search the identifiers.
+            rank_expr = Document.rank(1.0, 0.0)
+        elif ranking == Index.RANK_BM25:
+            if SEARCH_EXTENSION != 'FTS3':
+                # Search only the content field, do not search the identifiers.
+                rank_expr = Document.bm25(1.0, 0.0)
+            else:
+                # BM25 is not available, use the simple rank method.
+                rank_expr = Document.rank(1.0, 0.0)
+
+        selection = [
+            Document._meta.primary_key,
+            Document.content,
+            Document.identifier]
+
         if ranking:
             selection.append(rank_expr.alias('score'))
 
@@ -191,13 +213,13 @@ class Index(BaseModel):
                 fn.EXISTS(Metadata.select().where(
                     (Metadata.key == key) &
                     (Metadata.value == value) &
-                    (Metadata.document == Document.rowid)))
+                    (Metadata.document == Document._meta.primary_key)))
                 for key, value in filters.items()
             ])
             query = query.where(filter_expr)
 
         if ranking:
-            query = query.order_by(rank_expr.desc())
+            query = query.order_by(SQL('score'))
 
         return query
 
@@ -210,14 +232,19 @@ class Index(BaseModel):
 
     def index(self, content, document=None, identifier=None, **metadata):
         if document is None:
-            document = Document()
+            document = Document.create(
+                content=content,
+                identifier=identifier)
         else:
             del document.metadata
-        document.content = content
-        document.identifier = identifier
-        document.save()
-        self.add_to_index(document)
+            nrows = (Document
+                     .update(
+                         content=content,
+                         identifier=identifier)
+                     .where(Document._meta.primary_key == document.get_id())
+                     .execute())
 
+        self.add_to_index(document)
         if metadata:
             document.metadata = metadata
         return document
@@ -318,7 +345,7 @@ def _serialize_documents(document_query, include_score=False):
     document_list = []
     for document in documents:
         data = {
-            'id': document.rowid,
+            'id': document.get_id(),
             'identifier': document.identifier,
             'content': document.content}
         data['metadata'] = dict(
@@ -456,7 +483,7 @@ def document_list():
             index.add_to_index(document)
 
         return jsonify({
-            'id': document.rowid,
+            'id': document.get_id(),
             'content': document.content,
             'indexes': [index.name for index in indexes],
             'metadata': document.metadata})
@@ -494,7 +521,7 @@ def document_detail(document_id):
     """
     document = get_object_or_404(
         Document.all(),
-        Document.rowid == document_id)
+        Document._meta.primary_key == document_id)
     return _document_detail(document)
 
 @app.route('/documents/identifier/<identifier>/', methods=['GET', 'POST', 'DELETE'])
@@ -564,7 +591,7 @@ def _document_detail(document):
         index_names = [index.name for index in indexes]
 
     return jsonify({
-        'id': document.rowid,
+        'id': document.get_id(),
         'identifier': document.identifier,
         'content': document.content,
         'indexes': index_names,
@@ -628,8 +655,11 @@ def initialize_database(database_file):
     database.init(database_file)
 
     with database.execution_context():
-        Document.create_table(tokenize=app.config['STEM'], fail_silently=True)
-        database.create_tables([Metadata, Index, IndexDocument], safe=True)
+        database.create_tables([
+            Document,
+            Metadata,
+            Index,
+            IndexDocument], safe=True)
 
 def panic(s, exit_code=1):
     sys.stderr.write('\033[91m%s\033[0m\n' % s)
