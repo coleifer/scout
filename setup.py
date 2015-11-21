@@ -29,7 +29,7 @@ setup(
     license='MIT',
     install_requires=[
         'flask',
-        'peewee>=2.4'],
+        'peewee>=2.7.3'],
     py_modules=['scout', 'scout_client'],
     scripts=['scout.py'],
     test_suite='tests',
