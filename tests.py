@@ -168,13 +168,19 @@ class TestModelAPIs(BaseTestCase):
 
         assertSearch('believe', [3, 0])
         assertSearch('faith man', [0])
-        assertSearch('faith thing', [4, 2])
+        if IS_FTS5:
+            assertSearch('faith thing', [4, 2])
+        else:
+            assertSearch('faith thing', [2, 4])
         assertSearch('things', [4, 2])
         assertSearch('blah', [])
         assertSearch('', [])
 
         assertSearch('believe', [3, 0], Index.RANK_BM25)  # Same result.
-        assertSearch('faith thing', [4, 2], Index.RANK_BM25)  # Swapped.
+        if IS_FTS5:
+            assertSearch('faith thing', [4, 2], Index.RANK_BM25)  # Swapped.
+        else:
+            assertSearch('faith thing', [2, 4], Index.RANK_BM25)  # Same.
         assertSearch('things', [4, 2], Index.RANK_BM25)  # Same result.
         assertSearch('blah', [], Index.RANK_BM25)  # No results, works.
         assertSearch('', [], Index.RANK_BM25)
@@ -483,9 +489,6 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(len(response['documents']), 2)
         doc1, doc2 = response['documents']
 
-        if not IS_FTS5:
-            doc1, doc2 = doc2, doc1
-
         self.assertEqual(doc1, {
             'content': 'document nug nugs',
             'id': doc1['id'],
@@ -497,7 +500,7 @@ class TestSearchViews(BaseTestCase):
         if IS_FTS5:
             self.assertEqual(round(doc1['score'], 4), -2.2675)
         else:
-            self.assertEqual(round(doc1['score'], 4), 5.9032)
+            self.assertEqual(round(doc1['score'], 4), -0.)
 
         self.assertEqual(doc2, {
             'content': 'document blah nuggie foo',
@@ -510,7 +513,7 @@ class TestSearchViews(BaseTestCase):
         if IS_FTS5:
             self.assertEqual(round(doc2['score'], 4), -1.3588)
         else:
-            self.assertEqual(round(doc2['score'], 4), 5.0463)
+            self.assertEqual(round(doc2['score'], 4), -0.)
 
         response = self.search('idx', 'missing')
         self.assertEqual(len(response['documents']), 0)
@@ -542,14 +545,19 @@ class TestSearchViews(BaseTestCase):
             self.assertEqual(content, expected)
 
         if IS_FTS5:
-            results1 = ['huey document', 'uncle huey', 'little huey bear']
-            results2 = ['huey document', 'little huey bear']
+            results = ['huey document', 'uncle huey', 'little huey bear']
         else:
-            results1 = ['little huey bear', 'huey document', 'uncle huey']
-            results2 = ['little huey bear', 'huey document']
-        assertResults('huey', {}, results1)
-        assertResults('huey', {'kitty': 'yes'}, results2)
-        assertResults('huey', {'kitty': 'yes', 'name': 'huey'}, results2)
+            results = ['huey document', 'little huey bear', 'uncle huey']
+
+        assertResults('huey', {}, results)
+        assertResults(
+            'huey',
+            {'kitty': 'yes'},
+            ['huey document', 'little huey bear'])
+        assertResults(
+            'huey',
+            {'kitty': 'yes', 'name': 'huey'},
+            ['huey document', 'little huey bear'])
         assertResults(
             'docu*',
             {'kitty': 'yes'},
