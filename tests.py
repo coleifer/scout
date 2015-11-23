@@ -57,6 +57,78 @@ class BaseTestCase(unittest.TestCase):
             IndexDocument])
 
 
+class TestSearch(BaseTestCase):
+    def setUp(self):
+        super(TestSearch, self).setUp()
+        self.app = app.test_client()
+        self.index = Index.create(name='default')
+        Index.create(name='unused-1')
+        Index.create(name='unused-2')
+        app.config['AUTHENTICATION'] = None
+        self.populate()
+
+    def populate(self):
+        k1 = ['k1-1', 'k1-2']
+        k2 = ['k2-1', 'k2-2']
+        k3 = ['k3-1', 'k3-2']
+        with database.atomic():
+            for i in range(100):
+                self.index.index(
+                    content='testing %s' % i,
+                    test='true',
+                    k1=k1[i % 2],
+                    k2=k2[i % 2],
+                    k3=k3[i % 2])
+
+    def search(self, index, query, page=1, **filters):
+        filters.setdefault('ranking', Index.RANK_BM25)
+        params = urllib.urlencode(dict(filters, q=query, page=page))
+        response = self.app.get('/%s/search/?%s' % (index, params))
+        return json.loads(response.data)
+
+    def test_model_search(self):
+        results = self.index.search('testing 1*', k1='k1-1')
+        clean = [(doc.content, doc.metadata['k1']) for doc in results]
+        self.assertEqual(sorted(clean), [
+            ('testing 10', 'k1-1'),
+            ('testing 12', 'k1-1'),
+            ('testing 14', 'k1-1'),
+            ('testing 16', 'k1-1'),
+            ('testing 18', 'k1-1'),
+        ])
+
+    def test_search(self):
+        results = self.search('default', 'testing', k1='k1-1')
+        self.assertEqual(results['pages'], 5)
+        self.assertEqual(results['page'], 1)
+        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
+                         ['k1-1'] * 10)
+
+        results = self.search(
+            'default',
+            'testing',
+            k1='k1-1',
+            k2='k2-1',
+            k3='k3-1')
+        self.assertEqual(results['page'], 1)
+        self.assertEqual(results['pages'], 5)
+        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
+                         ['k1-1'] * 10)
+
+    def test_search_queries(self):
+        with assert_query_count(6):
+            results = self.search(
+                'default',
+                'testing',
+                k1='k1-1',
+                k2='k2-1',
+                k3='k3-1')
+
+        self.assertEqual(results['page'], 1)
+        self.assertEqual(results['pages'], 5)
+        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
+                         ['k1-1'] * 10)
+
 class TestModelAPIs(BaseTestCase):
     def setUp(self):
         super(TestModelAPIs, self).setUp()
