@@ -180,7 +180,8 @@ class Index(BaseModel):
     class Meta:
         db_table = 'main_index'
 
-    def search(self, search, ranking=RANK_SIMPLE, **filters):
+    def search(self, search, ranking=RANK_SIMPLE, explicit_ordering=False,
+               **filters):
         if not search.strip():
             return Document.select().where(Document._meta.primary_key == 0)
 
@@ -221,7 +222,10 @@ class Index(BaseModel):
             query = query.where(filter_expr)
 
         if ranking:
-            query = query.order_by(SQL('score'))
+            if explicit_ordering:
+                query = query.order_by(rank_expr)
+            else:
+                query = query.order_by(SQL('score'))
 
         return query
 
@@ -619,7 +623,7 @@ def search(index_name):
         if key not in ('page', 'q', 'key', 'ranking'))
 
     index = get_object_or_404(Index, Index.name == index_name)
-    query = index.search(search_query, ranking, **filters)
+    query = index.search(search_query, ranking, True, **filters)
     pq = PaginatedQuery(
         query,
         paginate_by=app.config['PAGINATE_BY'],
