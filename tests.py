@@ -12,6 +12,7 @@ from scout import database
 from scout import Document
 from scout import IndexDocument
 from scout import Index
+from scout import InvalidRequestException
 from scout import Metadata
 
 
@@ -44,12 +45,10 @@ class BaseTestCase(unittest.TestCase):
     ]
 
     def setUp(self):
-        database.drop_tables([
-            Document,
-            Metadata,
-            Index,
-            IndexDocument], safe=True)
-
+        if not database.is_closed():
+            database.close()
+        database.connect()
+        assert database.get_tables() == []
         database.create_tables([
             Document,
             Metadata,
@@ -71,6 +70,12 @@ class TestSearch(BaseTestCase):
         k1 = ['k1-1', 'k1-2']
         k2 = ['k2-1', 'k2-2']
         k3 = ['k3-1', 'k3-2']
+        messages = [
+            'foo bar baz',
+            'nuggie zaizee',
+            'huey mickey',
+            'googie',
+        ]
         with database.atomic():
             for i in range(100):
                 self.index.index(
@@ -78,7 +83,11 @@ class TestSearch(BaseTestCase):
                     test='true',
                     k1=k1[i % 2],
                     k2=k2[i % 2],
-                    k3=k3[i % 2])
+                    k3=k3[i % 2],
+                    idx='%02d' % i,
+                    idx10=i % 10,
+                    name=messages[i % 4],
+                )
 
     def search(self, index, query, page=1, **filters):
         filters.setdefault('ranking', Index.RANK_BM25)
@@ -96,6 +105,40 @@ class TestSearch(BaseTestCase):
             ('testing 16', 'k1-1'),
             ('testing 18', 'k1-1'),
         ])
+
+    def assertResults(self, filters, expected):
+        results = self.index.search('testing', **filters)
+        indexes = sorted([doc.metadata['idx'] for doc in results])
+        self.assertEqual(indexes, expected)
+        return results
+
+    def test_model_filtering(self):
+        self.assertResults(
+            {'idx__ge': 95, 'idx10__in': '5,8,9,1, 3'},
+            ['95', '98', '99'])
+
+        results = self.assertResults(
+            {'name__contains': 'gie', 'idx10__ge': 6, 'idx__lt': 30},
+            ['07', '09', '17', '19', '27', '29'])
+
+        sort_by_idx = sorted(results, key=lambda d: d.metadata['idx'])
+        names = [doc.metadata['name'] for doc in sort_by_idx]
+        self.assertEqual(names, [
+            'googie',
+            'nuggie zaizee',
+            'nuggie zaizee',
+            'googie',
+            'googie',
+            'nuggie zaizee'])
+
+        self.assertResults(
+            {'name__regex': 'gie$', 'idx__gt': 90},
+            ['91', '95', '99'])
+
+    def test_invalid_op(self):
+        self.assertRaises(
+            InvalidRequestException,
+            lambda: self.index.search('testing', name__xx='missing'))
 
     def test_search(self):
         results = self.search('default', 'testing', k1='k1-1')

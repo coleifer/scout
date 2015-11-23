@@ -213,12 +213,8 @@ class Index(BaseModel):
 
         if filters:
             filter_expr = reduce(operator.and_, [
-                fn.EXISTS(Metadata.select().where(
-                    (Metadata.key == key) &
-                    (Metadata.value == value) &
-                    (Metadata.document == Document._meta.primary_key)))
-                for key, value in filters.items()
-            ])
+                self._build_filter_expression(key, value)
+                for key, value in filters.items()])
             query = query.where(filter_expr)
 
         if ranking:
@@ -228,6 +224,36 @@ class Index(BaseModel):
                 query = query.order_by(SQL('score'))
 
         return query
+
+    def _build_filter_expression(self, key, value):
+        def in_(lhs, rhs):
+            return lhs << ([i.strip() for i in rhs.split(',')])
+        operations = {
+            'eq': operator.eq,
+            'ne': operator.ne,
+            'ge': operator.ge,
+            'gt': operator.gt,
+            'le': operator.le,
+            'lt': operator.lt,
+            'in': in_,
+            'contains': lambda l, r: operator.pow(l, '%%%s%%' % r),
+            'startswith': lambda l, r: operator.pow(l, '%s%%' % r),
+            'endswith': lambda l, r: operator.pow(l, '%%%s' % r),
+            'regex': lambda l, r: l.regexp(r),
+        }
+        if key.find('__') != -1:
+            key, op = key.rsplit('__', 1)
+            if op not in operations:
+                error(
+                    'Unrecognized operation: %s. Supported operations are:'
+                    '\n%s' % (op, '\n'.join(sorted(operations.keys()))))
+        else:
+            op = 'eq'
+
+        return fn.EXISTS(Metadata.select().where(
+            (Metadata.key == key) &
+            operations[op](Metadata.value, value) &
+            (Metadata.document == Document._meta.primary_key)))
 
     def add_to_index(self, document):
         with database.atomic():
