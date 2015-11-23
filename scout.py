@@ -66,6 +66,8 @@ if os.environ.get('SCOUT_SETTINGS'):
     app.config.from_envvar('SCOUT_SETTINGS')
 
 database = SqliteExtDatabase(None, c_extensions=app.config['C_EXTENSIONS'])
+if app.config.get('DATABASE'):
+    database.init(app.config['DATABASE'])
 
 #
 # Database models.
