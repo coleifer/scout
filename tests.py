@@ -64,7 +64,6 @@ class TestSearch(BaseTestCase):
         Index.create(name='unused-1')
         Index.create(name='unused-2')
         app.config['AUTHENTICATION'] = None
-        self.populate()
 
     def populate(self):
         k1 = ['k1-1', 'k1-2']
@@ -96,6 +95,7 @@ class TestSearch(BaseTestCase):
         return json.loads(response.data)
 
     def test_model_search(self):
+        self.populate()
         results = self.index.search('testing 1*', k1='k1-1')
         clean = [(doc.content, doc.metadata['k1']) for doc in results]
         self.assertEqual(sorted(clean), [
@@ -113,6 +113,7 @@ class TestSearch(BaseTestCase):
         return results
 
     def test_model_filtering(self):
+        self.populate()
         self.assertResults(
             {'idx__ge': 95, 'idx10__in': '5,8,9,1, 3'},
             ['95', '98', '99'])
@@ -135,12 +136,54 @@ class TestSearch(BaseTestCase):
             {'name__regex': 'gie$', 'idx__gt': 90},
             ['91', '95', '99'])
 
+    def test_docs_example(self):
+        data = [
+            ('huey', ('2010-06-01', 'Lawrence', 'KS')),
+            ('mickey', ('2008-04-01', 'Lawrence', 'KS')),
+            ('zaizee', ('2012-05-01', 'Lawrence', 'KS')),
+            ('dodie', ('2014-09-01', 'Lawrence', 'KS')),
+            ('harley', ('2008-04-20', 'Topeka', 'KS')),
+            ('oreo', ('2009-01-01', 'Topeka', 'KS')),
+            ('boo', ('2012-01-01', 'Kansas City', 'MO')),
+            ('gray', ('2012-02-01', 'Kansas City', 'MO')),
+            ('mackie', ('2007-02-01', 'Pittsburg', 'KS')),
+        ]
+        for name, (dob, city, state) in data:
+            self.index.index(content=name, dob=dob, city=city, state=state)
+
+        docs = self.index.search('*', dob__gt='2009-01-01')
+        self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
+            '2010-06-01',
+            '2012-01-01',
+            '2012-02-01',
+            '2012-05-01',
+            '2014-09-01',
+        ])
+
+        docs = self.index.search(
+            '*', dob__ge='2008-01-01', dob__lt='2009-01-01')
+        self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
+            '2008-04-01',
+            '2008-04-20',
+        ])
+
+        docs = self.index.search('*', city__in='Topeka,Lawrence', state='KS')
+        self.assertEqual(sorted([doc.content for doc in docs]), [
+            'dodie',
+            'harley',
+            'huey',
+            'mickey',
+            'oreo',
+            'zaizee',
+        ])
+
     def test_invalid_op(self):
         self.assertRaises(
             InvalidRequestException,
             lambda: self.index.search('testing', name__xx='missing'))
 
     def test_search(self):
+        self.populate()
         results = self.search('default', 'testing', k1='k1-1')
         self.assertEqual(results['pages'], 5)
         self.assertEqual(results['page'], 1)
@@ -159,6 +202,7 @@ class TestSearch(BaseTestCase):
                          ['k1-1'] * 10)
 
     def test_search_queries(self):
+        self.populate()
         with assert_query_count(6):
             results = self.search(
                 'default',
@@ -745,6 +789,7 @@ def main():
     options, args = option_parser.parse_args()
     database.init(':memory:')
     app.config['PAGINATE_BY'] = 10
+    app.config['STAR_ALL'] = True
     msg = ('Testing Scout using SQLite search engine "%s"' %
            app.config['SEARCH_EXTENSION'])
     print msg

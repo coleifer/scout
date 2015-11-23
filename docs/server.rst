@@ -171,7 +171,8 @@ Parameters:
   * ``simple`` (default): use a simple, efficient ranking algorithm.
   * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4.
 
-* arbitrary key/value pairs: used to match document *metadata*. Only documents whose metadata matches the key/value pairs will be included.
+* Arbitrary key/value pairs: used to match document *metadata*. Only documents whose metadata matches the key/value pairs will be included.
+* Metadata searches match on equality by default, but other types of expressions can be formed by appending ``'__<operation>'`` to the metadata key. For more information, see :ref:`the advance query section <advanced-query>`.
 
 Example search:
 
@@ -239,6 +240,52 @@ Response:
       "page": 1,
       "pages": 1
     }
+
+.. _advanced-query:
+
+Using advanced query filters
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Suppose we have an index that contains all of our contacts. The search content consists of the person's name, address, city, and state. We also have stored quite a bit of metadata about each person. A person record might look like this:
+
+.. code-block:: javascript
+
+    {'content': "Huey Leifer 123 Main Street Lawrence KS 66044"}
+
+The metadata for this record consists of the following:
+
+.. code-block:: javascript
+
+    {'metadata': {
+      'dob': '2010-06-01',
+      'city': 'Lawrence',
+      'state': 'KS',
+    }}
+
+Let's say we want to search our index for all people who were born in 1983. We could use the following URL:
+
+``/contacts-index/search/?q=*&dob__ge=1983-01-01&dob__lt=1984-01-01``
+
+To search for all people who live in Lawrence or Topeka, KS we could use the following URL:
+
+``/contacts-index/search/?q=*&city__in=Lawrence,Topeka&state=KS
+
+There are a number of operations available for use when querying metadata. Here is the complete list:
+
+* ``keyname__eq``: Default (when only the key name is supplied). Returns documents whose metadata contains the given key/value pair.
+* ``keyname__ne``: Not equals.
+* ``keyname__ge``: Greater-than or equal-to.
+* ``keyname__gt``: Greater-than.
+* ``keyname__le``: Less-than or equal-to.
+* ``keyname__lt``: Less-than.
+* ``keyname__in``: In. The value should be a comma-separated list of values to match.
+* ``keyname__contains``: Substring search.
+* ``keyname__startswith``: Prefix search.
+* ``keyname__endswith``: Suffix search.
+* ``keyname__regex``: Search using a regular expression.
+
+.. note:: In these examples we're using the asterisk ("``*``") to return all records. This option is disabled by default, but you can enable it by specifying ``STAR_ALL=True`` in your :ref:`config file <config-file>`.
+
 
 Document list: "/documents/"
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -442,6 +489,8 @@ Scout supports a handful of configuration options to control it's behavior when 
 * ``--paginate-by``: set the number of documents displayed per page of results. Defaults to 50.
 * ``-d``, ``--debug``: boolean flag to run Scout in debug mode.
 
+.. _config-file:
+
 Python Configuration File
 -------------------------
 
@@ -455,7 +504,9 @@ The following options can be overridden:
 * ``HOST`` (same as ``-H`` or ``--host``).
 * ``PAGINATE_BY`` (same as ``--paginate-by``).
 * ``PORT`` (same as ``-p`` or ``--port``).
+* ``SEARCH_EXTENSION``, manually specify the FTS extension version. Scout defaults to the newest version available based on your installed SQLite, but you can force an older version with this option.
 * ``SECRET_KEY``, which is used internally by Flask to encrypt client-side session data stored in cookies.
+* ``STAR_ALL``, when the search term is "*", return all records. This option is disabled by default.
 * ``STEM`` (same as ``-s`` or ``--stem``).
 
 .. note:: Options specified on the command-line will override any options specified in the configuration file.

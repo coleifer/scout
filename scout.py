@@ -58,6 +58,7 @@ PAGINATE_BY = 50
 PORT = 8000
 SEARCH_EXTENSION = HAVE_FTS5 and 'FTS5' or (HAVE_FTS4 and 'FTS4' or 'FTS3')
 SECRET_KEY = 'huey is a little angel.'  # Customize this.
+STAR_ALL = False
 STEM = None
 
 app = Flask(__name__)
@@ -182,10 +183,13 @@ class Index(BaseModel):
 
     def search(self, search, ranking=RANK_SIMPLE, explicit_ordering=False,
                **filters):
-        if not search.strip():
+        search = search.strip()
+        if not search or (search == '*' and not app.config['STAR_ALL']):
             return Document.select().where(Document._meta.primary_key == 0)
 
-        if ranking == Index.RANK_SIMPLE:
+        if search == '*':
+            rank_expr = SQL('0').alias('score')
+        elif ranking == Index.RANK_SIMPLE:
             # Search only the content field, do not search the identifiers.
             rank_expr = Document.rank(1.0, 0.0)
         elif ranking == Index.RANK_BM25:
@@ -207,9 +211,10 @@ class Index(BaseModel):
         query = (Document
                  .select(*selection)
                  .join(IndexDocument)
-                 .where(
-                     (IndexDocument.index == self) &
-                     (Document.match(search))))
+                 .where(IndexDocument.index == self))
+
+        if search != '*':
+            query = query.where(Document.match(search))
 
         if filters:
             filter_expr = reduce(operator.and_, [
