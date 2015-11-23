@@ -164,6 +164,7 @@ class Metadata(BaseModel):
         db_table = 'main_metadata'
         indexes = (
             (('document', 'key'), True),
+            (('key', 'value'), False),
         )
 
 
