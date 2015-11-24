@@ -1,0 +1,2 @@
+flask
+peewee>=2.7.3
