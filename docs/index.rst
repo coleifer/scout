@@ -15,7 +15,9 @@ Features:
 * Lightweight, low resource utilization, minimal setup required.
 * Store search content and arbitrary metadata.
 * Multiple result ranking algorithms, porter stemmer.
+* Besides full-text search, perform complex filtering based on metadata values.
 * Comprehensive unit-tests.
+* Supports SQLite `FTS4 <http://sqlite.org/fts3.html>`_ and the brand-new `FTS5 <http://sqlite.org/fts5.html>`_.
 
 Contents:
 

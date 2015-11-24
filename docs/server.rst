@@ -27,14 +27,14 @@ There are three main concepts in Scout:
 
 *Documents* have content, which is indexed for search, and may be associated with any number of indexes.
 
-Documents also can have *metadata*, arbitrary key/value pairs.
+Documents also can have *metadata*, arbitrary key/value pairs. Besides full-text search, Scout allows complex filtering based on metadata values. So in addition to storing useful things alongside your documents, you can also use metadata to provide an additional layer of filtering.
 
-For example a blog might have a single index containing documents for each post. The document metadata might contain the ID of the entry, or the entry's title and URL for easy link generation.
+For example a blog might have an index to store every post, and a separate index to store comments. The blog entry metadata might contain the ID of the entry, or the entry's title and URL for easy link generation. The comment metadata might store the comment's timestamp as metadata to allow searching for comments made in a specific time-frame.
 
 A news site might have an index for articles, an index for local events, and a "master" index containing both.
 
 Index list: "/"
-^^^^^^^^^^^^^^^
+---------------
 
 The index list endpoint returns the list of indexes and the number of documents contained within each. The list is not paginated and will display all available indexes. New indexes can be created by POST-ing a name to this URL.
 
@@ -84,7 +84,7 @@ Response:
 The POST response corresponds to the serialized index detail for the newly-created index.
 
 Index detail: "/:index-name/"
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-----------------------------
 
 The index detail returns the name and ID of the index, as well as a paginated list of documents associated with the index. The index can be re-named by POSTing a ``name`` to this URL.
 
@@ -156,7 +156,7 @@ Response:
     {"success": true}
 
 Index search: "/:index-name/search/"
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------------
 
 Perform a search of documents associated with the given index. Results are returned as a paginated list of documents.
 
@@ -244,7 +244,7 @@ Response:
 .. _advanced-query:
 
 Using advanced query filters
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------
 
 Suppose we have an index that contains all of our contacts. The search content consists of the person's name, address, city, and state. We also have stored quite a bit of metadata about each person. A person record might look like this:
 
@@ -288,7 +288,7 @@ There are a number of operations available for use when querying metadata. Here 
 
 
 Document list: "/documents/"
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------
 
 The document list endpoint returns a paginated list of all documents, regardless of index. New documents are indexed by ``POST``-ing the content, index(es) and optional metadata.
 
@@ -359,7 +359,7 @@ Response on creating a new document:
     }
 
 Document detail: "/documents/:document-id/"
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------------------------
 
 The document detail endpoint returns document content, indexes, and metadata. Documents can be updated or deleted by using ``POST`` and ``DELETE`` requests, respectively. When updating a document, you can update the ``content``, ``index(es)``, and/or ``metadata``.
 
