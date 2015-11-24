@@ -49,9 +49,13 @@ copyright = u'%s, Charles Leifer' % datetime.datetime.now().year
 # built documents.
 #
 # The short X.Y version.
-src_dir = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
-sys.path.insert(0, src_dir)
-from scout import __version__
+try:
+    src_dir = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
+    sys.path.insert(0, src_dir)
+    from scout import __version__
+except ImportError:
+    # TODO: fixme.
+    __version__ = '0.3.1'
 version = __version__
 # The full version, including alpha/beta/rc tags.
 release = __version__
