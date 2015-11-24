@@ -108,7 +108,8 @@ class TestSearch(BaseTestCase):
 
     def assertResults(self, filters, expected):
         results = self.index.search('testing', **filters)
-        indexes = sorted([doc.metadata['idx'] for doc in results])
+        results = sorted(results, key=lambda doc: doc.metadata['idx'])
+        indexes = [doc.metadata['idx'] for doc in results]
         self.assertEqual(indexes, expected)
         return results
 
@@ -122,8 +123,7 @@ class TestSearch(BaseTestCase):
             {'name__contains': 'gie', 'idx10__ge': 6, 'idx__lt': 30},
             ['07', '09', '17', '19', '27', '29'])
 
-        sort_by_idx = sorted(results, key=lambda d: d.metadata['idx'])
-        names = [doc.metadata['name'] for doc in sort_by_idx]
+        names = [doc.metadata['name'] for doc in results]
         self.assertEqual(names, [
             'googie',
             'nuggie zaizee',
@@ -135,6 +135,21 @@ class TestSearch(BaseTestCase):
         self.assertResults(
             {'name__regex': 'gie$', 'idx__gt': 90},
             ['91', '95', '99'])
+
+    def test_filter_or(self):
+        self.populate()
+        self.assertResults(
+            {'idx': ['03', '05', '99']},
+            ['03', '05', '99'])
+
+        crazy = {
+            'idx10': ['1', '4', '7'],
+            'idx__lt': '30',
+            'name': ['huey mickey', 'nuggie zaizee']}
+        results = self.assertResults(crazy, ['01', '14', '17', '21'])
+        names = [doc.metadata['name'] for doc in results]
+        self.assertEqual(names, ['nuggie zaizee', 'huey mickey',
+                                 'nuggie zaizee', 'nuggie zaizee'])
 
     def test_docs_example(self):
         data = [

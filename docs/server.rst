@@ -270,6 +270,17 @@ To search for all people who live in Lawrence or Topeka, KS we could use the fol
 
 ``/contacts-index/search/?q=*&city__in=Lawrence,Topeka&state=KS``
 
+Scout will take all filters and return only those records that match all of the given conditions. However, when the same key is used multiple times, Scout will use ``OR`` to join those clauses. For example, another way we could query for people who live in Lawrence or Topeka would be:
+
+``/contacts-index/search/?q=*&city=Lawrence&city=Topeka&state=KS``
+
+As you can see, we're querying ``city=XXX`` twice. Scout will interpret that as meaning ``(city=Lawrence OR city=Topeka) AND state=KS``.
+
+.. note:: In these example URLs we're using the asterisk ("``*``") to return all records. This option is disabled by default, but you can enable it by specifying ``-a`` in your :ref:`command-line options <command-line-options>` or ``STAR_ALL=True`` in your :ref:`config file <config-file>`.
+
+Query operations
+^^^^^^^^^^^^^^^^
+
 There are a number of operations available for use when querying metadata. Here is the complete list:
 
 * ``keyname__eq``: Default (when only the key name is supplied). Returns documents whose metadata contains the given key/value pair.
@@ -283,8 +294,6 @@ There are a number of operations available for use when querying metadata. Here 
 * ``keyname__startswith``: Prefix search.
 * ``keyname__endswith``: Suffix search.
 * ``keyname__regex``: Search using a regular expression.
-
-.. note:: In these examples we're using the asterisk ("``*``") to return all records. This option is disabled by default, but you can enable it by specifying ``STAR_ALL=True`` in your :ref:`config file <config-file>`.
 
 
 Document list: "/documents/"
@@ -463,6 +472,8 @@ Alternatively, the key can be specified as a ``GET`` argument:
       "indexes": []
     }
 
+.. _command-line-options:
+
 Configuration and Command-Line Options
 --------------------------------------
 
@@ -487,6 +498,8 @@ Scout supports a handful of configuration options to control it's behavior when 
 * ``--paginate-by``: set the number of documents displayed per page of results. Default is 50.
 * ``-c``, ``--config``: set the configuration file (a Python module). See the configuration options for available settings.
 * ``--paginate-by``: set the number of documents displayed per page of results. Defaults to 50.
+* ``-v``, ``--search-version``: set the SQLite FTS version. Valid values are ``4`` or ``5``.
+* ``-a``, ``--star-all``: when the search term is "*", return all records. This option is disabled by default.
 * ``-d``, ``--debug``: boolean flag to run Scout in debug mode.
 
 .. _config-file:
@@ -504,9 +517,9 @@ The following options can be overridden:
 * ``HOST`` (same as ``-H`` or ``--host``).
 * ``PAGINATE_BY`` (same as ``--paginate-by``).
 * ``PORT`` (same as ``-p`` or ``--port``).
-* ``SEARCH_EXTENSION``, manually specify the FTS extension version. Scout defaults to the newest version available based on your installed SQLite, but you can force an older version with this option.
+* ``SEARCH_EXTENSION``, manually specify the FTS extension version. Scout defaults to the newest version available based on your installed SQLite, but you can force an older version with this option. (same as ``-v`` or ``--search-version``)
 * ``SECRET_KEY``, which is used internally by Flask to encrypt client-side session data stored in cookies.
-* ``STAR_ALL``, when the search term is "*", return all records. This option is disabled by default.
+* ``STAR_ALL``, when the search term is "*", return all records. This option is disabled by default. (same as ``-a`` or ``--star-all``)
 * ``STEM`` (same as ``-s`` or ``--stem``).
 
 .. note:: Options specified on the command-line will override any options specified in the configuration file.

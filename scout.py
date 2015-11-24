@@ -60,6 +60,7 @@ SEARCH_EXTENSION = HAVE_FTS5 and 'FTS5' or (HAVE_FTS4 and 'FTS4' or 'FTS3')
 SECRET_KEY = 'huey is a little angel.'  # Customize this.
 STAR_ALL = False
 STEM = None
+_PROTECTED_KEYS = set(['page', 'q', 'key', 'ranking'])
 
 app = Flask(__name__)
 app.config.from_object(__name__)
@@ -219,8 +220,8 @@ class Index(BaseModel):
 
         if filters:
             filter_expr = reduce(operator.and_, [
-                self._build_filter_expression(key, value)
-                for key, value in filters.items()])
+                self._build_filter_expression(key, values)
+                for key, values in filters.items()])
             query = query.where(filter_expr)
 
         if ranking:
@@ -231,7 +232,7 @@ class Index(BaseModel):
 
         return query
 
-    def _build_filter_expression(self, key, value):
+    def _build_filter_expression(self, key, values):
         def in_(lhs, rhs):
             return lhs << ([i.strip() for i in rhs.split(',')])
         operations = {
@@ -256,9 +257,16 @@ class Index(BaseModel):
         else:
             op = 'eq'
 
+        op = operations[op]
+        if isinstance(values, (list, tuple)):
+            expr = reduce(operator.or_, [
+                ((Metadata.key == key) & op(Metadata.value, value))
+                for value in values])
+        else:
+            expr = ((Metadata.key == key) & op(Metadata.value, values))
+
         return fn.EXISTS(Metadata.select().where(
-            (Metadata.key == key) &
-            operations[op](Metadata.value, value) &
+            expr &
             (Metadata.document == Document._meta.primary_key)))
 
     def add_to_index(self, document):
@@ -651,8 +659,8 @@ def search(index_name):
         error('Unrecognized "ranking" type.')
 
     filters = dict(
-        (key, value) for key, value in request.args.items()
-        if key not in ('page', 'q', 'key', 'ranking'))
+        (key, request.args.getlist(key)) for key in request.args
+        if key not in _PROTECTED_KEYS)
 
     index = get_object_or_404(Index, Index.name == index_name)
     query = index.search(search_query, ranking, True, **filters)
@@ -743,6 +751,19 @@ def get_option_parser():
         '--api-key',
         dest='api_key',
         help='Set the API key required to access Scout.')
+    parser.add_option(
+        '-v',
+        '--search-version',
+        choices=('4', '5'),
+        dest='search_version',
+        help='Select SQLite search extension version (FTS[4] or FTS[5])',
+        type='choice')
+    parser.add_option(
+        '-a',
+        '--star-all',
+        action='store_true',
+        dest='star_all',
+        help='Search query "*" returns all records')
     return parser
 
 
@@ -790,5 +811,11 @@ if __name__ == '__main__':
         if options.stem not in ('simple', 'porter'):
             panic('Unrecognized stemmer. Must be "porter" or "simple".')
         app.config['STEM'] = options.stem
+
+    if options.star_all:
+        app.config['STAR_ALL'] = True
+
+    if options.search_version:
+        app.config['SEARCH_EXTENSION'] = 'FTS%s' % options.search_version
 
     main()
