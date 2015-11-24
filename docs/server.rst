@@ -268,7 +268,7 @@ Let's say we want to search our index for all people who were born in 1983. We c
 
 To search for all people who live in Lawrence or Topeka, KS we could use the following URL:
 
-``/contacts-index/search/?q=*&city__in=Lawrence,Topeka&state=KS
+``/contacts-index/search/?q=*&city__in=Lawrence,Topeka&state=KS``
 
 There are a number of operations available for use when querying metadata. Here is the complete list:
 
