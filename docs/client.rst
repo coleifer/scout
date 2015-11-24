@@ -218,3 +218,20 @@ Scout comes with a simple Python client. This document describes the client API.
               u'indexes': [u'vault'],
               u'metadata': {u'type': u'huey'},
               u'score': 0.5}]
+
+        To use a filter with multiple values, you can pass in a list. The resulting filter will use ``OR`` logic to combine the expressions. The resulting query searches for the word "interesting" and then filters the results such that the metadata type contains either the substring 'huey' or 'ufo':
+
+        .. code-block:: pycon
+
+            >>> results = scout.search('vault', 'interesting', type__contains=['huey', 'ufo'])
+            >>> print results['documents']
+            [{u'content': u'Huey is not very interested in UFOs.',
+              u'id': 2,
+              u'indexes': [u'vault'],
+              u'metadata': {u'type': u'huey'},
+              u'score': 0.6194637905555267},
+             {u'content': u'The Rendlesham forest incident is one of the most interesting UFO accounts.',
+              u'id': 1,
+              u'indexes': [u'vault'],
+              u'metadata': {u'type': u'ufo'},
+              u'score': 0.48797383501308006}]
