@@ -110,7 +110,7 @@ class Document(FTSBaseModel):
     class Meta:
         database = database
         db_table = 'main_document'
-        options = ModelOptions
+        extension_options = options = ModelOptions
 
     @classmethod
     def all(cls):
