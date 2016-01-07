@@ -808,8 +808,8 @@ def main():
     msg = ('Testing Scout using SQLite search engine "%s"' %
            app.config['SEARCH_EXTENSION'])
     print msg
-    if app.config['C_EXTENSIONS'] and app.config['SEARCH_EXTENSION'] != 'FTS5':
-        print 'Peewee SQLite C extension is enabled.'
+    c_ext = app.config['C_EXTENSIONS']
+    print 'Peewee C extension is %s.' % ('enabled' if c_ext else 'disabled')
     print '-' * len(msg)
     unittest.main(argv=sys.argv, verbosity=not options.quiet and 2 or 0)
 

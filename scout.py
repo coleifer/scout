@@ -47,7 +47,7 @@ if peewee_version < [2, 7, 0]:
 
 
 AUTHENTICATION = None
-C_EXTENSIONS = False
+C_EXTENSIONS = True
 DATABASE = None
 DEBUG = False
 HAVE_FTS4 = FTS_VER == 'FTS4'
