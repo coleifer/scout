@@ -183,7 +183,7 @@ class Index(BaseModel):
     class Meta:
         db_table = 'main_index'
 
-    def search(self, search, ranking=RANK_SIMPLE, explicit_ordering=False,
+    def search(self, search, ranking=RANK_BM25, explicit_ordering=False,
                **filters):
         search = search.strip()
         if not search or (search == '*' and not app.config['STAR_ALL']):
@@ -191,9 +191,6 @@ class Index(BaseModel):
 
         if search == '*':
             rank_expr = SQL('0').alias('score')
-        elif ranking == Index.RANK_SIMPLE:
-            # Search only the content field, do not search the identifiers.
-            rank_expr = Document.rank(1.0, 0.0)
         elif ranking == Index.RANK_BM25:
             if SEARCH_EXTENSION != 'FTS3':
                 # Search only the content field, do not search the identifiers.
@@ -201,6 +198,9 @@ class Index(BaseModel):
             else:
                 # BM25 is not available, use the simple rank method.
                 rank_expr = Document.rank(1.0, 0.0)
+        elif ranking == Index.RANK_SIMPLE:
+            # Search only the content field, do not search the identifiers.
+            rank_expr = Document.rank(1.0, 0.0)
 
         selection = [
             Document._meta.primary_key,
@@ -654,7 +654,7 @@ def search(index_name):
         error('Missing required search parameter "q".')
 
     search_query = request.args['q']
-    ranking = request.args.get('ranking', Index.RANK_SIMPLE)
+    ranking = request.args.get('ranking', Index.RANK_BM25)
     if ranking and ranking not in (Index.RANK_SIMPLE, Index.RANK_BM25):
         error('Unrecognized "ranking" type.')
 
