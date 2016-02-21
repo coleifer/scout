@@ -12,7 +12,11 @@ try:
 except ImportError:
     pass
 from functools import wraps
+import base64
+import datetime
+import hashlib
 import json
+import mimetypes
 import operator
 import optparse
 import os
@@ -24,10 +28,12 @@ except ImportError:
     except ImportError:
         import sqlite3
 import sys
+import zlib
 
-from flask import abort, Flask, jsonify, request, Response
+from flask import abort, Flask, jsonify, make_response, request, Response, url_for
 from peewee import *
 from peewee import __version__ as peewee_version_raw
+from playhouse.fields import CompressedField
 from playhouse.flask_utils import get_object_or_404
 from playhouse.flask_utils import PaginatedQuery
 from playhouse.sqlite_ext import *
@@ -145,10 +151,77 @@ class Document(FTSBaseModel):
                 .join(IndexDocument)
                 .where(IndexDocument.document == self.get_id()))
 
+    def attach(self, filename, data):
+        hash_obj = hashlib.sha256(data)
+        data_hash = base64.b64encode(hash_obj.digest())
+        try:
+            with database.atomic():
+                data_obj = BlobData.create(hash=data_hash, data=data)
+        except IntegrityError:
+            pass
+
+        mimetype = mimetypes.guess_type(filename)[0] or 'text/plain'
+        try:
+            with database.atomic():
+                attachment = Attachment.create(
+                    document=self,
+                    filename=filename,
+                    hash=data_hash,
+                    mimetype=mimetype)
+        except IntegrityError:
+            attachment = (Attachment
+                          .get((Attachment.document == self) &
+                               (Attachment.filename == filename)))
+            attachment.hash = data_hash
+            attachment.mimetype = mimetype
+            attachment.save(only=[Attachment.hash, Attachment.mimetype])
+
+        return attachment
+
+    def detach(self, filename):
+        return (Attachment
+                .delete()
+                .where((Attachment.document == self) &
+                       (Attachment.filename == filename))
+                .execute())
+
 
 class BaseModel(Model):
     class Meta:
         database = database
+
+
+class Attachment(BaseModel):
+    """
+    A mapping of a BLOB to a Document.
+    """
+    document = ForeignKeyField(Document, primary_key=True,
+                               related_name='attachments')
+    hash = CharField()
+    filename = CharField(index=True)
+    mimetype = CharField(index=True)
+    timestamp = DateTimeField(default=datetime.datetime.now)
+
+    class Meta:
+        indexes = (
+            (('document', 'filename'), True),
+        )
+
+    @property
+    def blob(self):
+        if not hasattr(self, '_blob'):
+            self._blob = BlobData.get(BlobData.hash == self.hash)
+        return self._blob
+
+    @property
+    def length(self):
+        return len(self.blob.data)
+
+
+class BlobData(BaseModel):
+    """Content-addressable BLOB."""
+    hash = CharField(primary_key=True)
+    data = CompressedField(compression_level=6, algorithm='zlib')
 
 
 class Metadata(BaseModel):
@@ -317,6 +390,22 @@ class IndexDocument(BaseModel):
 # View helpers.
 #
 
+class InvalidRequestException(Exception):
+    def __init__(self, error_message):
+        self.error_message = error_message
+
+    def response(self):
+        return jsonify({'error': self.error_message}), 400
+
+
+def error(message):
+    """
+    Trigger an Exception from a view that will short-circuit the Response
+    cycle and return a 400 "Bad request" with the given error message.
+    """
+    raise InvalidRequestException(message)
+
+
 def parse_post(required_keys=None, optional_keys=None):
     """
     Clean and validate POSTed JSON data by defining sets of required and
@@ -342,19 +431,6 @@ def parse_post(required_keys=None, optional_keys=None):
 
     return data
 
-class InvalidRequestException(Exception):
-    def __init__(self, error_message):
-        self.error_message = error_message
-
-    def response(self):
-        return jsonify({'error': self.error_message}), 400
-
-def error(message):
-    """
-    Trigger an Exception from a view that will short-circuit the Response
-    cycle and return a 400 "Bad request" with the given error message.
-    """
-    raise InvalidRequestException(message)
 
 def validate_indexes(data, required=True):
     if data.get('index'):
@@ -381,6 +457,7 @@ def validate_indexes(data, required=True):
 
     return indexes
 
+
 def _serialize_documents(document_query, include_score=False):
     # Eagerly load metadata and associated indexes.
     documents = prefetch(
@@ -402,10 +479,13 @@ def _serialize_documents(document_query, include_score=False):
             for idx_doc in document.indexdocument_set_prefetch]
         if include_score:
             data['score'] = document.score
+        data['attachments'] = url_for('document_attachment_index',
+                                      document_id=document.get_id())
 
         document_list.append(data)
 
     return document_list
+
 
 def protect_view(fn):
     @wraps(fn)
@@ -458,6 +538,7 @@ def index_list():
         for index in query
     ]})
 
+
 @app.route('/<index_name>/', methods=['GET', 'POST', 'DELETE'])
 @protect_view
 def index_detail(index_name):
@@ -499,6 +580,7 @@ def index_detail(index_name):
         'documents': _serialize_documents(pq.get_object_list()),
         'page': pq.get_page(),
         'pages': pq.get_page_count()})
+
 
 @app.route('/documents/', methods=['GET', 'POST'])
 @protect_view
@@ -557,6 +639,7 @@ def document_list():
         'page': pq.get_page(),
         'pages': pq.get_page_count()})
 
+
 @app.route('/documents/<int:document_id>/', methods=['GET', 'POST', 'DELETE'])
 @protect_view
 def document_detail(document_id):
@@ -570,6 +653,7 @@ def document_detail(document_id):
         Document._meta.primary_key == document_id)
     return _document_detail(document)
 
+
 @app.route('/documents/identifier/<identifier>/', methods=['GET', 'POST', 'DELETE'])
 @protect_view
 def document_by_identifier(identifier):
@@ -577,6 +661,7 @@ def document_by_identifier(identifier):
         Document.all(),
         Document.identifier == identifier)
     return _document_detail(document)
+
 
 def _document_detail(document):
     if request.method == 'DELETE':
@@ -644,9 +729,120 @@ def _document_detail(document):
         'metadata': document.metadata,
     })
 
-@app.route('/<index_name>/search/', methods=['GET'])
+
+@app.route('/documents/<int:document_id>/attachments/',
+           methods=['GET', 'POST'])
 @protect_view
-def search(index_name):
+def document_attachment_index(document_id):
+    """
+    Return the details for an individual document. This view can also be
+    used to update the `content`, `index(es)` and, optionally, `metadata`.
+    To remove a document, issue a `DELETE` request to this view.
+    """
+    document = get_object_or_404(
+        Document.all(),
+        Document._meta.primary_key == document_id)
+
+    if request.method == 'POST':
+        post = parse_post(['filename', 'data'], ['compressed'])
+
+        decoded = base64.b64decode(post['data'])
+        if post.get('compressed'):
+            decoded = zlib.decompress(decoded)
+
+        attachment = document.attach(post['filename'], decoded)
+        return jsonify(_serialize_attachment(attachment))
+    else:
+        query = document.attachments.order_by(Attachment.filename)
+        pq = PaginatedQuery(
+            query,
+            paginate_by=app.config['PAGINATE_BY'],
+            page_var=app.config['PAGE_VAR'],
+            check_bounds=False)
+
+    return jsonify({
+        'attachments': [_serialize_attachment(attachment)
+                        for attachment in pq.get_object_list()],
+        'page': pq.get_page(),
+        'pages': pq.get_page_count()})
+
+
+@app.route('/documents/<int:document_id>/attachments/<path:filename>',
+           methods=['GET', 'POST', 'DELETE'])
+@protect_view
+def attachment_detail(document_id, filename):
+    document = get_object_or_404(
+        Document.all(),
+        Document._meta.primary_key == document_id)
+    attachment = get_object_or_404(
+        document.attachments,
+        Attachment.filename == filename)
+
+    if request.method == 'DELETE':
+        attachment.delete_instance()
+        return jsonify({'success': True})
+    elif request.method == 'POST':
+        post = parse_post([], ['filename', 'data', 'compressed'])
+
+        if post.get('filename'):
+            attachment.filename = post['filename']
+            attachment.mimetype = mimetypes.guess_type(post['filename'])[0]
+            attachment.save(only=[Attachment.filename, Attachment.mimetype])
+
+        if 'data' in post:
+            data = base64.b64decode(post['data'])
+            if post.get('compressed'):
+                data = zlib.decompress(data)
+            attachment.delete_instance()
+            document.attach(attachment.filename, data)
+
+        return redirect(url_for(
+            'attachment_detail',
+            document_id=document.get_id(),
+            filename=attachment.filename))
+    else:
+        return jsonify(_serialize_attachment(attachment))
+
+
+def _serialize_attachment(attachment):
+    return {
+        'filename': attachment.filename,
+        'mimetype': attachment.mimetype,
+        'timestamp': str(attachment.timestamp),
+        'data_length': attachment.length,
+        'document': url_for(
+            'document_detail',
+            document_id=attachment.document_id),
+        'data': url_for(
+            'attachment_download',
+            document_id=attachment.document_id,
+            filename=attachment.filename),
+    }
+
+
+@app.route('/documents/<int:document_id>/attachments/<path:filename>/download/')
+@protect_view
+def attachment_download(document_id, filename):
+    document = get_object_or_404(
+        Document.all(),
+        Document._meta.primary_key == document_id)
+    attachment = get_object_or_404(
+        document.attachments,
+        Attachment.filename == filename)
+
+    response = make_response(attachment.blob.data)
+    response.headers['Content-Type'] = attachment.mimetype
+    response.headers['Content-Length'] = attachment.length
+    response.headers['Content-Disposition'] = 'inline; filename=%s' % (
+        attachment.filename)
+
+    return response
+
+
+@app.route('/<index_name>/search/', defaults={'attachments': False})
+@app.route('/<index_name>/search/attachments/', defaults={'attachments': True})
+@protect_view
+def search(index_name, attachments):
     """
     Search the index for documents matching the given query.
     """
@@ -664,16 +860,44 @@ def search(index_name):
 
     index = get_object_or_404(Index, Index.name == index_name)
     query = index.search(search_query, ranking, True, **filters)
-    pq = PaginatedQuery(
-        query,
-        paginate_by=app.config['PAGINATE_BY'],
-        page_var=app.config['PAGE_VAR'],
-        check_bounds=False)
+    if attachments:
+        p1 = (Document._meta.primary_key == Attachment.document)
+        p2 = (Attachment.hash == BlobData.hash)
+        query = (query
+                 .select(
+                     Document._meta.primary_key,
+                     Attachment.filename,
+                     Attachment.mimetype,
+                     Attachment.document_id)
+                 .switch(Document)
+                 .join(Attachment, JOIN.INNER, p1)
+                 .join(BlobData, JOIN.INNER, p2)
+                 .dicts()
+                 .naive())
+
+        pq = PaginatedQuery(
+            query,
+            paginate_by=200,
+            page_var=app.config['PAGE_VAR'],
+            check_bounds=False)
+        documents = list(pq.get_object_list())
+        pk = operator.itemgetter(Document._meta.primary_key.name)
+        for document in documents:
+            document['data'] = url_for('attachment_download',
+                                       document_id=pk(document),
+                                       filename=document['filename'])
+    else:
+        pq = PaginatedQuery(
+            query,
+            paginate_by=app.config['PAGINATE_BY'],
+            page_var=app.config['PAGE_VAR'],
+            check_bounds=False)
+        documents = _serialize_documents(
+            pq.get_object_list(),
+            include_score=ranking is not None)
 
     return jsonify({
-        'documents': _serialize_documents(
-            pq.get_object_list(),
-            include_score=ranking is not None),
+        'documents': documents,
         'page': pq.get_page(),
         'pages': pq.get_page_count()})
 
@@ -697,20 +921,25 @@ def main():
             application=app,
             threaded=True)
 
+
 def initialize_database(database_file):
     database.init(database_file)
 
     with database.execution_context():
         database.create_tables([
+            Attachment,
+            BlobData,
             Document,
-            Metadata,
             Index,
-            IndexDocument], safe=True)
+            IndexDocument,
+            Metadata], safe=True)
+
 
 def panic(s, exit_code=1):
     sys.stderr.write('\033[91m%s\033[0m\n' % s)
     sys.stderr.flush()
     sys.exit(exit_code)
+
 
 def get_option_parser():
     parser = optparse.OptionParser()

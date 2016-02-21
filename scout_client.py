@@ -1,7 +1,9 @@
+import base64
 import json
 import urllib
 import urllib2
 import urlparse
+import zlib
 
 
 ENDPOINT = None
@@ -112,6 +114,21 @@ class Scout(object):
             return self.get('/documents/%s/' % document_id)
         else:
             return self.get('/documents/identifier/%s/' % identifier)
+
+    def attach_file(self, document_id, filename, data, compress=False):
+        data = {'filename': filename}
+        if compress:
+            content = zlib.compress(content)
+        data['data'] = base64.b64encode(content)
+        return self.post('/documents/%s/attachments/' % document_id, data)
+
+    def detach_file(self, document_id, filename):
+        return self.delete('/documents/%s/attachments/%s/' %
+                           (document_id, filename))
+
+    def fetch_attachment(self, document_id, filename):
+        return self.get('/documents/%s/attachments/%s/download/' %
+                        (document_id, filename))
 
     def search(self, index, query, **kwargs):
         kwargs['q'] = query
