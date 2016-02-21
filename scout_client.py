@@ -120,7 +120,7 @@ class Scout(object):
         doc = self.store_document(content, indexes, identifier, **metadata)
         self.attach_files(doc['id'], filenames)
 
-    def attach_file(self, document_id, filename, data, compress=False):
+    def attach_file(self, document_id, filename, content, compress=False):
         data = {'filename': filename}
         if compress:
             content = zlib.compress(content)

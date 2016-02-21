@@ -31,12 +31,14 @@ import sys
 import zlib
 
 from flask import abort, Flask, jsonify, make_response, request, Response, url_for
+from flask.views import MethodView
 from peewee import *
 from peewee import __version__ as peewee_version_raw
 from playhouse.fields import CompressedField
 from playhouse.flask_utils import get_object_or_404
 from playhouse.flask_utils import PaginatedQuery
 from playhouse.sqlite_ext import *
+from playhouse.sqlite_ext import FTS_VER
 from playhouse.sqlite_ext import _VirtualFieldMixin
 try:
     from playhouse.sqlite_ext import FTS5Model
@@ -185,6 +187,49 @@ class Document(FTSBaseModel):
                        (Attachment.filename == filename))
                 .execute())
 
+    def serialize(self, prefetched=False, include_score=False):
+        data = {
+            'id': self.get_id(),
+            'identifier': self.identifier,
+            'content': self.content,
+            'attachments': url_for('attachment_view',
+                                    document_id=self.get_id()),
+        }
+
+        if prefetched:
+            data['metadata'] = dict(
+                (metadata.key, metadata.value)
+                for metadata in self.metadata_set_prefetch)
+            data['indexes'] = [
+                idx_doc.index.name
+                for idx_doc in self.indexdocument_set_prefetch]
+        else:
+            data['metadata'] = self.metadata
+            indexes = (Index
+                       .select(Index.name)
+                       .join(IndexDocument)
+                       .where(IndexDocument.document == self.id)
+                       .tuples())
+            data['indexes'] = [row[0] for row in indexes]
+
+        if include_score:
+            data['score'] = document.score
+
+        return data
+
+    @classmethod
+    def serialize_query(cls, query, include_score=False):
+        # Eagerly load metadata and associated indexes.
+        documents = prefetch(
+            query,
+            Metadata,
+            IndexDocument,
+            Index)
+
+        return [
+            document.serialize(prefetched=True, include_score=include_score)
+            for document in documents]
+
 
 class BaseModel(Model):
     class Meta:
@@ -198,8 +243,8 @@ class Attachment(BaseModel):
     document = ForeignKeyField(Document, related_name='attachments')
     hash = CharField()
     filename = CharField(index=True)
-    mimetype = CharField(index=True)
-    timestamp = DateTimeField(default=datetime.datetime.now)
+    mimetype = CharField()
+    timestamp = DateTimeField(default=datetime.datetime.now, index=True)
 
     class Meta:
         indexes = (
@@ -215,6 +260,21 @@ class Attachment(BaseModel):
     @property
     def length(self):
         return len(self.blob.data)
+
+    def serialize(self):
+        return {
+            'filename': self.filename,
+            'mimetype': self.mimetype,
+            'timestamp': str(self.timestamp),
+            'data_length': self.length,
+            'document': url_for(
+                'document_view_detail',
+                document_id=self.document_id),
+            'data': url_for(
+                'attachment_download',
+                document_id=self.document_id,
+                filename=self.filename),
+        }
 
 
 class BlobData(BaseModel):
@@ -255,13 +315,8 @@ class Index(BaseModel):
     class Meta:
         db_table = 'main_index'
 
-    def search(self, search, ranking=RANK_BM25, explicit_ordering=False,
-               **filters):
-        search = search.strip()
-        if not search or (search == '*' and not app.config['STAR_ALL']):
-            return Document.select().where(Document._meta.primary_key == 0)
-
-        if search == '*':
+    def get_rank_expr(self, ranking, search_all):
+        if search_all:
             rank_expr = SQL('0').alias('score')
         elif ranking == Index.RANK_BM25:
             if SEARCH_EXTENSION != 'FTS3':
@@ -274,11 +329,20 @@ class Index(BaseModel):
             # Search only the content field, do not search the identifiers.
             rank_expr = Document.rank(1.0, 0.0)
 
+        return rank_expr
+
+    def search(self, search, ranking=RANK_BM25, explicit_ordering=False,
+               **filters):
+        search = search.strip()
+        if not search or (search == '*' and not app.config['STAR_ALL']):
+            return Document.select().where(Document._meta.primary_key == 0)
+
         selection = [
             Document._meta.primary_key,
             Document.content,
             Document.identifier]
 
+        rank_expr = self.get_rank_expr(ranking, search == '*')
         if ranking:
             selection.append(rank_expr.alias('score'))
 
@@ -297,10 +361,8 @@ class Index(BaseModel):
             query = query.where(filter_expr)
 
         if ranking:
-            if explicit_ordering:
-                query = query.order_by(rank_expr)
-            else:
-                query = query.order_by(SQL('score'))
+            order_by = rank_expr if explicit_ordering else SQL('score')
+            query = query.order_by(order_by)
 
         return query
 
@@ -374,6 +436,14 @@ class Index(BaseModel):
                 .join(IndexDocument)
                 .where(IndexDocument.index == self))
 
+    def serialize(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'documents': url_for('index_view_detail', pk=self.id),
+            'document_count': self.documents.count(),
+        }
+
 
 class IndexDocument(BaseModel):
     index = ForeignKeyField(Index)
@@ -390,105 +460,80 @@ class IndexDocument(BaseModel):
 #
 
 class InvalidRequestException(Exception):
-    def __init__(self, error_message):
+    def __init__(self, error_message, code=None):
         self.error_message = error_message
+        self.code = code or 400
 
     def response(self):
-        return jsonify({'error': self.error_message}), 400
+        return jsonify({'error': self.error_message}), self.code
 
 
-def error(message):
+def error(message, code=400):
     """
     Trigger an Exception from a view that will short-circuit the Response
     cycle and return a 400 "Bad request" with the given error message.
     """
-    raise InvalidRequestException(message)
+    raise InvalidRequestException(message, code=code)
 
 
-def parse_post(required_keys=None, optional_keys=None):
-    """
-    Clean and validate POSTed JSON data by defining sets of required and
-    optional keys.
-    """
-    try:
-        data = json.loads(request.data)
-    except ValueError:
-        error('Unable to parse JSON data from request.')
+class RequestValidator(object):
+    def parse_post(self, required_keys=None, optional_keys=None):
+        """
+        Clean and validate POSTed JSON data by defining sets of required and
+        optional keys.
+        """
+        try:
+            data = json.loads(request.data)
+        except ValueError:
+            error('Unable to parse JSON data from request.')
 
-    required = set(required_keys or [])
-    optional = set(optional_keys or [])
-    all_keys = required | optional
-    keys_present = set(key for key in data if data[key] not in ('', None))
+        required = set(required_keys or ())
+        optional = set(optional_keys or ())
+        all_keys = required | optional
+        keys_present = set(key for key in data if data[key] not in ('', None))
 
-    missing = required - keys_present
-    if missing:
-        error('Missing required fields: %s' % ', '.join(sorted(missing)))
+        missing = required - keys_present
+        if missing:
+            error('Missing required fields: %s' % ', '.join(sorted(missing)))
 
-    invalid_keys = keys_present - all_keys
-    if invalid_keys:
-        error('Invalid keys: %s' % ', '.join(sorted(invalid_keys)))
+        invalid_keys = keys_present - all_keys
+        if invalid_keys:
+            error('Invalid keys: %s' % ', '.join(sorted(invalid_keys)))
 
-    return data
+        return data
 
+    def validate_indexes(self, data, required=True):
+        if data.get('index'):
+            index_names = (data['index'],)
+        elif data.get('indexes'):
+            index_names = data['indexes']
+        elif ('index' in data or 'indexes' in data) and not required:
+            return ()
+        else:
+            return None
 
-def validate_indexes(data, required=True):
-    if data.get('index'):
-        index_names = [data['index']]
-    elif data.get('indexes'):
-        index_names = data['indexes']
-    elif ('index' in data or 'indexes' in data) and not required:
-        return []
-    else:
-        return None
+        indexes = list(Index.select().where(Index.name << index_names))
 
-    indexes = list(Index.select().where(Index.name << index_names))
+        # Validate that all the index names exist.
+        observed_names = set(index.name for index in indexes)
+        invalid_names = []
+        for index_name in index_names:
+            if index_name not in observed_names:
+                invalid_names.append(index_name)
 
-    # Validate that all the index names exist.
-    observed_names = set(index.name for index in indexes)
-    invalid_names = []
-    for index_name in index_names:
-        if index_name not in observed_names:
-            invalid_names.append(index_name)
+        if invalid_names:
+            abort('The following indexes were not found: %s.' %
+                  ', '.join(invalid_names))
 
-    if invalid_names:
-        error('The following indexes were not found: %s.' %
-              ', '.join(invalid_names))
-
-    return indexes
-
-
-def _serialize_documents(document_query, include_score=False):
-    # Eagerly load metadata and associated indexes.
-    documents = prefetch(
-        document_query,
-        Metadata,
-        IndexDocument,
-        Index)
-    document_list = []
-    for document in documents:
-        data = {
-            'id': document.get_id(),
-            'identifier': document.identifier,
-            'content': document.content}
-        data['metadata'] = dict(
-            (metadata.key, metadata.value)
-            for metadata in document.metadata_set_prefetch)
-        data['indexes'] = [
-            idx_doc.index.name
-            for idx_doc in document.indexdocument_set_prefetch]
-        if include_score:
-            data['score'] = document.score
-        data['attachments'] = url_for('document_attachment_index',
-                                      document_id=document.get_id())
-
-        document_list.append(data)
-
-    return document_list
+        return indexes
 
 
-def protect_view(fn):
-    @wraps(fn)
-    def inner(*args, **kwargs):
+class ScoutView(MethodView):
+    def __init__(self, *args, **kwargs):
+        self.validator = RequestValidator()
+        super(ScoutView, self).__init__(*args, **kwargs)
+
+    def dispatch_request(self, *args, **kwargs):
         if app.config['AUTHENTICATION']:
             # Check headers and request.args for `key=<key>`.
             api_key = None
@@ -497,26 +542,72 @@ def protect_view(fn):
             elif request.args.get('key'):
                 api_key = request.args['key']
             if api_key != app.config['AUTHENTICATION']:
-                return Response('Invalid API key'), 401
-        return fn(*args, **kwargs)
-    return inner
+                error('Invalid API key', 401)
+        return super(ScoutView, self).dispatch_request(*args, **kwargs)
+
+    @classmethod
+    def register(cls, app, name, url, pk_type=None):
+        view_func = cls.as_view(name)
+        # Add GET on index view.
+        app.add_url_rule(url, name, defaults={'pk': None}, view_func=view_func,
+                         methods=['GET'])
+        # Add POST on index view.
+        app.add_url_rule(url, name, view_func=view_func, methods=['POST'])
+
+        # Add detail views.
+        if pk_type is None:
+            detail_url = url + '<pk>/'
+        else:
+            detail_url = url + '<%s:pk>/' % pk_type
+        name += '_detail'
+        app.add_url_rule(detail_url, name, view_func=view_func,
+                         methods=['GET', 'PUT', 'DELETE'])
+
+    def paginated_query(self, query, paginate_by=None):
+        if paginate_by is None:
+            paginate_by = app.config['PAGINATE_BY']
+
+        return PaginatedQuery(
+            query,
+            paginate_by=paginate_by,
+            page_var=app.config['PAGE_VAR'],
+            check_bounds=False)
 
 #
 # Views.
 #
 
-@app.route('/', methods=['GET', 'POST'])
-@protect_view
-def index_list():
-    """
-    Main index for the SQLite search index. This view returns a JSON object
-    containing a list of indexes (id and name) along with the number of
-    documents stored in each index.
+class IndexView(ScoutView):
+    def get(self, pk):
+        if pk is None:
+            return self.get_list()
 
-    This view can also be used to create new indexes by POSTing a `name`.
-    """
-    if request.method == 'POST':
-        data = parse_post(['name'])
+        index = get_object_or_404(Index, Index.name == pk)
+        response = index.serialize()
+
+        query = index.documents.order_by(Document._meta.primary_key.desc())
+        pq = self.paginated_query(query)
+        response.update(
+            documents=Document.serialize_query(pq.get_object_list()),
+            page=pq.get_page(),
+            pages=pq.get_page_count())
+
+        return jsonify(response)
+
+    def get_list(self):
+        query = (Index
+                 .select(Index, fn.COUNT(IndexDocument.id).alias('count'))
+                 .join(IndexDocument, JOIN_LEFT_OUTER)
+                 .group_by(Index)
+                 .order_by(Index.name))
+        pq = self.paginated_query(query)
+        return jsonify({
+            'indexes': [index.serialize() for index in pq.get_object_list()],
+            'page': pq.get_page(),
+            'pages': pq.get_page_count()})
+
+    def post(self):
+        data = self.validator.parse_post(['name'])
 
         with database.atomic():
             try:
@@ -524,40 +615,11 @@ def index_list():
             except IntegrityError:
                 error('"%s" already exists.' % data['name'])
 
-        return index_detail(index.name)
+        return self.get(index.name)
 
-    query = (Index
-             .select(Index, fn.COUNT(IndexDocument.id).alias('count'))
-             .join(IndexDocument, JOIN_LEFT_OUTER)
-             .group_by(Index)
-             .order_by(Index.name))
+    def delete(self, pk):
+        index = get_object_or_404(Index, Index.name == pk)
 
-    return jsonify({'indexes': [
-        {'id': index.id, 'name': index.name, 'documents': index.count}
-        for index in query
-    ]})
-
-
-@app.route('/<index_name>/', methods=['GET', 'POST', 'DELETE'])
-@protect_view
-def index_detail(index_name):
-    """
-    Detail view for an index. This view returns a JSON object with
-    the index's id, name, and a paginated list of associated documents.
-
-    Existing indexes can be renamed using this view by `POST`-ing a
-    `name`, or deleted by issuing a `DELETE` request.
-    """
-    index = get_object_or_404(Index, Index.name == index_name)
-    if request.method == 'POST':
-        data = parse_post(['name'])
-        index.name = data['name']
-        with database.atomic():
-            try:
-                index.save()
-            except IntegrityError:
-                error('"%s" is already in use.' % index.name)
-    elif request.method == 'DELETE':
         with database.atomic():
             (IndexDocument
              .delete()
@@ -567,35 +629,59 @@ def index_detail(index_name):
 
         return jsonify({'success': True})
 
-    pq = PaginatedQuery(
-        index.documents,
-        paginate_by=app.config['PAGINATE_BY'],
-        page_var=app.config['PAGE_VAR'],
-        check_bounds=False)
+    def put(self, pk):
+        index = get_object_or_404(Index, Index.name == pk)
+        data = self.validator.parse_post(['name'])
+        index.name = data['name']
 
-    return jsonify({
-        'id': index.id,
-        'name': index.name,
-        'documents': _serialize_documents(pq.get_object_list()),
-        'page': pq.get_page(),
-        'pages': pq.get_page_count()})
+        with database.atomic():
+            try:
+                index.save()
+            except IntegrityError:
+                error('"%s" is already in use.' % index.name)
+
+        return self.get(index.name)
 
 
-@app.route('/documents/', methods=['GET', 'POST'])
-@protect_view
-def document_list():
-    """
-    Returns a paginated list of documents.
+class DocumentView(ScoutView):
+    def _get_document(self, pk):
+        return get_object_or_404(
+            Document.all(),
+            Document._meta.primary_key == pk)
 
-    Documents can be indexed by `POST`ing content, index(es) and,
-    optionally, metadata.
-    """
-    if request.method == 'POST':
-        data = parse_post(
+    def get(self, pk):
+        if pk is None:
+            return self.get_list()
+
+        document = self._get_document(pk)
+        return jsonify(document.serialize())
+
+    def get_list(self):
+        query = Document.all()
+
+        # Allow filtering by index.
+        if request.args.get('index'):
+            query = (query
+                     .join(IndexDocument, JOIN_LEFT_OUTER)
+                     .join(Index)
+                     .where(Index.name == request.args['index']))
+
+        if request.args.get('identifier'):
+            query = query.where(
+                Document.identifier == request.args['identifier'])
+
+        pq = self.paginated_query(query)
+        return jsonify({
+            'documents': Document.serialize_query(pq.get_object_list()),
+            'page': pq.get_page(),
+            'pages': pq.get_page_count()})
+
+    def post(self):
+        data = self.validator.parse_post(
             ['content'],
             ['identifier', 'index', 'indexes', 'metadata'])
 
-        indexes = validate_indexes(data)
+        indexes = self.validator.validate_indexes(data)
         if indexes is None:
             error('You must specify either an "index" or "indexes".')
 
@@ -609,61 +695,11 @@ def document_list():
         for index in indexes:
             index.add_to_index(document)
 
-        return jsonify({
-            'id': document.get_id(),
-            'content': document.content,
-            'indexes': [index.name for index in indexes],
-            'metadata': document.metadata})
+        return self.get(document.get_id())
 
-    query = Document.all()
+    def delete(self, pk):
+        document = self._get_document(pk)
 
-    # Allow filtering by index.
-    if request.args.get('index'):
-        query = (query
-                 .join(IndexDocument, JOIN_LEFT_OUTER)
-                 .join(Index)
-                 .where(Index.name == request.args['index']))
-
-    if request.args.get('identifier'):
-        query = query.where(Document.identifier == request.args['identifier'])
-
-    pq = PaginatedQuery(
-        query,
-        paginate_by=app.config['PAGINATE_BY'],
-        page_var=app.config['PAGE_VAR'],
-        check_bounds=False)
-
-    return jsonify({
-        'documents': _serialize_documents(pq.get_object_list()),
-        'page': pq.get_page(),
-        'pages': pq.get_page_count()})
-
-
-@app.route('/documents/<int:document_id>/', methods=['GET', 'POST', 'DELETE'])
-@protect_view
-def document_detail(document_id):
-    """
-    Return the details for an individual document. This view can also be
-    used to update the `content`, `index(es)` and, optionally, `metadata`.
-    To remove a document, issue a `DELETE` request to this view.
-    """
-    document = get_object_or_404(
-        Document.all(),
-        Document._meta.primary_key == document_id)
-    return _document_detail(document)
-
-
-@app.route('/documents/identifier/<identifier>/', methods=['GET', 'POST', 'DELETE'])
-@protect_view
-def document_by_identifier(identifier):
-    document = get_object_or_404(
-        Document.all(),
-        Document.identifier == identifier)
-    return _document_detail(document)
-
-
-def _document_detail(document):
-    if request.method == 'DELETE':
         with database.atomic():
             (IndexDocument
              .delete()
@@ -671,23 +707,27 @@ def _document_detail(document):
              .execute())
             Metadata.delete().where(Metadata.document == document).execute()
             document.delete_instance()
+
         return jsonify({'success': True})
 
-    elif request.method == 'POST':
-        data = parse_post([], [
+    def put(self, pk):
+        document = self._get_document(pk)
+        data = self.validator.parse_post([], [
             'content',
             'identifier',
             'index',
             'indexes',
             'metadata'])
 
-        dirty = False
-        for key in ('content', 'identifier'):
-            if data.get(key):
-                setattr(document, key, data[key])
-                dirty = True
+        save_document = False
+        if data.get('content'):
+            document.content = data['content']
+            save_document = True
+        if data.get('identifier'):
+            document.identifier = data['identifier']
+            save_document = True
 
-        if dirty:
+        if save_document:
             document.save()
 
         if 'metadata' in data:
@@ -695,7 +735,7 @@ def _document_detail(document):
             if data['metadata']:
                 document.metadata = data['metadata']
 
-        indexes = validate_indexes(data, required=False)
+        indexes = self.validator.validate_indexes(data, required=False)
         if indexes is not None:
             with database.atomic():
                 (IndexDocument
@@ -707,81 +747,60 @@ def _document_detail(document):
                     IndexDocument.insert_many([
                         {'index': index, 'document': document}
                         for index in indexes]).execute()
-        else:
-            indexes = document.get_indexes()
 
-        index_names = [index.name for index in indexes]
-
-    else:
-        # GET requests.
-        indexes = (Index
-                   .select(Index.name)
-                   .join(IndexDocument)
-                   .where(IndexDocument.document == document))
-        index_names = [index.name for index in indexes]
-
-    return jsonify({
-        'id': document.get_id(),
-        'identifier': document.identifier,
-        'content': document.content,
-        'indexes': index_names,
-        'metadata': document.metadata,
-    })
+        return self.get(document.get_id())
 
 
-@app.route('/documents/<int:document_id>/attachments/',
-           methods=['GET', 'POST'])
-@protect_view
-def document_attachment_index(document_id):
-    """
-    Return the details for an individual document. This view can also be
-    used to update the `content`, `index(es)` and, optionally, `metadata`.
-    To remove a document, issue a `DELETE` request to this view.
-    """
-    document = get_object_or_404(
-        Document.all(),
-        Document._meta.primary_key == document_id)
+class AttachmentView(ScoutView):
+    def _get_document(self, document_id):
+        return get_object_or_404(
+            Document.all(),
+            Document._meta.primary_key == document_id)
 
-    if request.method == 'POST':
-        post = parse_post(['filename', 'data'], ['compressed'])
+    def _get_attachment(self, document, pk):
+        return get_object_or_404(
+            document.attachments,
+            Attachment.filename == pk)
+
+    def get(self, document_id, pk):
+        if pk is None:
+            return self.get_list(document_id)
+
+        document = self._get_document(document_id)
+        attachment = self._get_attachment(document, pk)
+        return jsonify(attachment.serialize())
+
+    def get_list(self, document_id):
+        document = self._get_document(document_id)
+        query = document.attachments.order_by(Attachment.filename)
+        pq = self.paginated_query(query)
+        return jsonify({
+            'attachments': [a.serialize() for a in pq.get_object_list()],
+            'page': pq.get_page(),
+            'pages': pq.get_page_count()})
+
+    def post(self, document_id):
+        document = self._get_document(document_id)
+        post = self.validator.parse_post(['filename', 'data'], ['compressed'])
 
         decoded = base64.b64decode(post['data'])
         if post.get('compressed'):
             decoded = zlib.decompress(decoded)
 
         attachment = document.attach(post['filename'], decoded)
-        return jsonify(_serialize_attachment(attachment))
-    else:
-        query = document.attachments.order_by(Attachment.filename)
-        pq = PaginatedQuery(
-            query,
-            paginate_by=app.config['PAGINATE_BY'],
-            page_var=app.config['PAGE_VAR'],
-            check_bounds=False)
+        return jsonify(attachment.serialize())
 
-    return jsonify({
-        'attachments': [_serialize_attachment(attachment)
-                        for attachment in pq.get_object_list()],
-        'page': pq.get_page(),
-        'pages': pq.get_page_count()})
-
-
-@app.route('/documents/<int:document_id>/attachments/<path:filename>',
-           methods=['GET', 'POST', 'DELETE'])
-@protect_view
-def attachment_detail(document_id, filename):
-    document = get_object_or_404(
-        Document.all(),
-        Document._meta.primary_key == document_id)
-    attachment = get_object_or_404(
-        document.attachments,
-        Attachment.filename == filename)
-
-    if request.method == 'DELETE':
+    def delete(self, document_id, pk):
+        document = self._get_document(document_id)
+        attachment = self._get_attachment(document, pk)
         attachment.delete_instance()
         return jsonify({'success': True})
-    elif request.method == 'POST':
-        post = parse_post([], ['filename', 'data', 'compressed'])
+
+    def put(self, document_id, pk):
+        document = self._get_document(document_id)
+        attachment = self._get_attachment(document, pk)
+        post = self.validator.parse_post(
+            [], ['filename', 'data', 'compressed'])
 
         if post.get('filename'):
             attachment.filename = post['filename']
@@ -795,39 +814,23 @@ def attachment_detail(document_id, filename):
             attachment.delete_instance()
             document.attach(attachment.filename, data)
 
-        return redirect(url_for(
-            'attachment_detail',
-            document_id=document.get_id(),
-            filename=attachment.filename))
-    else:
-        return jsonify(_serialize_attachment(attachment))
+        return self.get(document.get_id(), attachment.filename)
 
 
-def _serialize_attachment(attachment):
-    return {
-        'filename': attachment.filename,
-        'mimetype': attachment.mimetype,
-        'timestamp': str(attachment.timestamp),
-        'data_length': attachment.length,
-        'document': url_for(
-            'document_detail',
-            document_id=attachment.document_id),
-        'data': url_for(
-            'attachment_download',
-            document_id=attachment.document_id,
-            filename=attachment.filename),
-    }
+IndexView.register(app, 'index_view', '/')
+DocumentView.register(app, 'document_view', '/documents/')
+AttachmentView.register(app, 'attachment_view', '/documents/<document_id>/attachments/', 'path')
 
 
-@app.route('/documents/<int:document_id>/attachments/<path:filename>/download/')
-@protect_view
+@app.route('/documents/<document_id>/<path:pk>/download/')
+#@protect_view
 def attachment_download(document_id, filename):
     document = get_object_or_404(
         Document.all(),
         Document._meta.primary_key == document_id)
     attachment = get_object_or_404(
         document.attachments,
-        Attachment.filename == filename)
+        Attachment.filename == pk)
 
     response = make_response(attachment.blob.data)
     response.headers['Content-Type'] = attachment.mimetype
@@ -840,7 +843,7 @@ def attachment_download(document_id, filename):
 
 @app.route('/<index_name>/search/', defaults={'attachments': False})
 @app.route('/<index_name>/search/attachments/', defaults={'attachments': True})
-@protect_view
+#@protect_view
 def search(index_name, attachments):
     """
     Search the index for documents matching the given query.
