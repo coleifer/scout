@@ -425,6 +425,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(len(data['documents']), 10)
         doc = data['documents'][0]
         self.assertEqual(doc, {
+            'attachments': '/documents/1/attachments/',
             'content': 'document-0',
             'id': 1,
             'identifier': None,
@@ -444,6 +445,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(len(data['documents']), 1)
         doc = data['documents'][0]
         self.assertEqual(doc, {
+            'attachments': '/documents/12/attachments/',
             'content': 'both-doc',
             'id': 12,
             'identifier': None,
@@ -664,6 +666,7 @@ class TestSearchViews(BaseTestCase):
         doc1, doc2 = response['documents']
 
         self.assertEqual(doc1, {
+            'attachments': '/documents/%s/attachments/' % doc1['id'],
             'content': 'document nug nugs',
             'id': doc1['id'],
             'identifier': None,
@@ -677,6 +680,7 @@ class TestSearchViews(BaseTestCase):
             self.assertEqual(round(doc1['score'], 4), -0.)
 
         self.assertEqual(doc2, {
+            'attachments': '/documents/%s/attachments/' % doc2['id'],
             'content': 'document blah nuggie foo',
             'id': doc2['id'],
             'identifier': None,
