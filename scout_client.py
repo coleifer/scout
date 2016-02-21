@@ -115,12 +115,40 @@ class Scout(object):
         else:
             return self.get('/documents/identifier/%s/' % identifier)
 
+    def store_with_attachments(self, content, indexes, filenames,
+                               identifier=None, **metadata):
+        doc = self.store_document(content, indexes, identifier, **metadata)
+        self.attach_files(doc['id'], filenames)
+
     def attach_file(self, document_id, filename, data, compress=False):
         data = {'filename': filename}
         if compress:
             content = zlib.compress(content)
         data['data'] = base64.b64encode(content)
         return self.post('/documents/%s/attachments/' % document_id, data)
+
+    def attach_files(self, document_id, filenames):
+        for filename in filenames:
+            if filename.startswith('http:') or filename.startswith('https:'):
+                parse_result = urlparse.urlparse(filename)
+                fh = urllib2.urlopen(filename)
+                filename = parse_result.path
+                data = fh.read()
+            elif os.path.isfile(filename):
+                with open(filename, 'rb') as fh:
+                    data = fh.read()
+            elif os.path.isdir(filename):
+                filenames = [filename for filename in os.listdir(filename)
+                             if os.path.isfile(filename)]
+                self.attach_files(document_id, filenames)
+            else:
+                raise ValueError('Unrecognized file: %s' % filename)
+
+            self.attach_file(
+                document_id,
+                os.path.basename(filename),
+                data,
+                compress=True)
 
     def detach_file(self, document_id, filename):
         return self.delete('/documents/%s/attachments/%s/' %
