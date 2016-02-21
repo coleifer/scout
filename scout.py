@@ -195,8 +195,7 @@ class Attachment(BaseModel):
     """
     A mapping of a BLOB to a Document.
     """
-    document = ForeignKeyField(Document, primary_key=True,
-                               related_name='attachments')
+    document = ForeignKeyField(Document, related_name='attachments')
     hash = CharField()
     filename = CharField(index=True)
     mimetype = CharField(index=True)
