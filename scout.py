@@ -578,15 +578,42 @@ class ScoutView(MethodView):
             page_var=app.config['PAGE_VAR'],
             check_bounds=False)
 
+    def get(self, **kwargs):
+        if kwargs.get('pk') is None:
+            kwargs.pop('pk', None)
+            return self.list_view(**kwargs)
+        return self.detail(**kwargs)
+
+    def post(self, **kwargs):
+        if kwargs.get('pk') is None:
+            kwargs.pop('pk', None)
+            return self.create(**kwargs)
+        return self.update(**kwargs)
+
+    def put(self, **kwargs):
+        return self.update(**kwargs)
+
+    def detail(self):
+        raise NotImplementedError
+
+    def list_view(self):
+        raise NotImplementedError
+
+    def create(self):
+        raise NotImplementedError
+
+    def update(self):
+        raise NotImplementedError
+
+    def delete(self):
+        raise NotImplementedError
+
 #
 # Views.
 #
 
 class IndexView(ScoutView):
-    def get(self, pk):
-        if pk is None:
-            return self.get_list()
-
+    def detail(self, pk):
         index = get_object_or_404(Index, Index.name == pk)
         response = index.serialize()
 
@@ -599,7 +626,7 @@ class IndexView(ScoutView):
 
         return jsonify(response)
 
-    def get_list(self):
+    def list_view(self):
         query = (Index
                  .select(Index, fn.COUNT(IndexDocument.id).alias('doc_count'))
                  .join(IndexDocument, JOIN_LEFT_OUTER)
@@ -611,10 +638,7 @@ class IndexView(ScoutView):
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
-    def post(self, pk):
-        if pk is not None:
-            return self.put(pk)
-
+    def create(self):
         data = self.validator.parse_post(['name'])
 
         with database.atomic():
@@ -623,7 +647,20 @@ class IndexView(ScoutView):
             except IntegrityError:
                 error('"%s" already exists.' % data['name'])
 
-        return self.get(index.name)
+        return self.detail(index.name)
+
+    def update(self, pk):
+        index = get_object_or_404(Index, Index.name == pk)
+        data = self.validator.parse_post(['name'])
+        index.name = data['name']
+
+        with database.atomic():
+            try:
+                index.save()
+            except IntegrityError:
+                error('"%s" is already in use.' % index.name)
+
+        return self.detail(index.name)
 
     def delete(self, pk):
         index = get_object_or_404(Index, Index.name == pk)
@@ -637,19 +674,6 @@ class IndexView(ScoutView):
 
         return jsonify({'success': True})
 
-    def put(self, pk):
-        index = get_object_or_404(Index, Index.name == pk)
-        data = self.validator.parse_post(['name'])
-        index.name = data['name']
-
-        with database.atomic():
-            try:
-                index.save()
-            except IntegrityError:
-                error('"%s" is already in use.' % index.name)
-
-        return self.get(index.name)
-
 
 class DocumentView(ScoutView):
     def _get_document(self, pk):
@@ -657,14 +681,11 @@ class DocumentView(ScoutView):
             Document.all(),
             Document._meta.primary_key == pk)
 
-    def get(self, pk):
-        if pk is None:
-            return self.get_list()
-
+    def detail(self, pk):
         document = self._get_document(pk)
         return jsonify(document.serialize())
 
-    def get_list(self):
+    def list_view(self):
         query = Document.all()
 
         # Allow filtering by index.
@@ -684,10 +705,7 @@ class DocumentView(ScoutView):
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
-    def post(self, pk):
-        if pk is not None:
-            return self.put(pk)
-
+    def create(self):
         data = self.validator.parse_post(
             ['content'],
             ['identifier', 'index', 'indexes', 'metadata'])
@@ -706,22 +724,9 @@ class DocumentView(ScoutView):
         for index in indexes:
             index.add_to_index(document)
 
-        return self.get(document.get_id())
+        return self.detail(document.get_id())
 
-    def delete(self, pk):
-        document = self._get_document(pk)
-
-        with database.atomic():
-            (IndexDocument
-             .delete()
-             .where(IndexDocument.document == document)
-             .execute())
-            Metadata.delete().where(Metadata.document == document).execute()
-            document.delete_instance()
-
-        return jsonify({'success': True})
-
-    def put(self, pk):
+    def update(self, pk):
         document = self._get_document(pk)
         data = self.validator.parse_post([], [
             'content',
@@ -759,7 +764,20 @@ class DocumentView(ScoutView):
                         {'index': index, 'document': document}
                         for index in indexes]).execute()
 
-        return self.get(document.get_id())
+        return self.detail(document.get_id())
+
+    def delete(self, pk):
+        document = self._get_document(pk)
+
+        with database.atomic():
+            (IndexDocument
+             .delete()
+             .where(IndexDocument.document == document)
+             .execute())
+            Metadata.delete().where(Metadata.document == document).execute()
+            document.delete_instance()
+
+        return jsonify({'success': True})
 
 
 class AttachmentView(ScoutView):
@@ -773,15 +791,12 @@ class AttachmentView(ScoutView):
             document.attachments,
             Attachment.filename == pk)
 
-    def get(self, document_id, pk):
-        if pk is None:
-            return self.get_list(document_id)
-
+    def detail(self, document_id, pk):
         document = self._get_document(document_id)
         attachment = self._get_attachment(document, pk)
         return jsonify(attachment.serialize())
 
-    def get_list(self, document_id):
+    def list_view(self, document_id):
         document = self._get_document(document_id)
         query = document.attachments.order_by(Attachment.filename)
         pq = self.paginated_query(query)
@@ -790,10 +805,7 @@ class AttachmentView(ScoutView):
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
-    def post(self, document_id, pk):
-        if pk is not None:
-            return self.put(pk)
-
+    def create(self, document_id):
         document = self._get_document(document_id)
         post = self.validator.parse_post(['filename', 'data'], ['compressed'])
 
@@ -804,13 +816,7 @@ class AttachmentView(ScoutView):
         attachment = document.attach(post['filename'], decoded)
         return jsonify(attachment.serialize())
 
-    def delete(self, document_id, pk):
-        document = self._get_document(document_id)
-        attachment = self._get_attachment(document, pk)
-        attachment.delete_instance()
-        return jsonify({'success': True})
-
-    def put(self, document_id, pk):
+    def update(self, document_id, pk):
         document = self._get_document(document_id)
         attachment = self._get_attachment(document, pk)
         post = self.validator.parse_post(
@@ -828,7 +834,13 @@ class AttachmentView(ScoutView):
             attachment.delete_instance()
             document.attach(attachment.filename, data)
 
-        return self.get(document.get_id(), attachment.filename)
+        return self.detail(document.get_id(), attachment.filename)
+
+    def delete(self, document_id, pk):
+        document = self._get_document(document_id)
+        attachment = self._get_attachment(document, pk)
+        attachment.delete_instance()
+        return jsonify({'success': True})
 
 
 IndexView.register(app, 'index_view', '/')
