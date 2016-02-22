@@ -880,7 +880,7 @@ def attachment_upload(document_id):
 
 @app.route('/documents/<document_id>/<path:pk>/download/')
 @protect_view
-def attachment_download(document_id, filename):
+def attachment_download(document_id, pk):
     document = get_object_or_404(
         Document.all(),
         Document._meta.primary_key == document_id)
