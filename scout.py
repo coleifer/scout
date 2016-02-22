@@ -269,11 +269,11 @@ class Attachment(BaseModel):
             'data_length': self.length,
             'document': url_for(
                 'document_view_detail',
-                document_id=self.document_id),
+                pk=self.document_id),
             'data': url_for(
                 'attachment_download',
                 document_id=self.document_id,
-                filename=self.filename),
+                pk=self.filename),
         }
 
 
@@ -532,21 +532,35 @@ class RequestValidator(object):
         return indexes
 
 
+def authenticate_request():
+    if app.config['AUTHENTICATION']:
+        # Check headers and request.args for `key=<key>`.
+        api_key = None
+        if request.headers.get('key'):
+            api_key = request.headers['key']
+        elif request.args.get('key'):
+            api_key = request.args['key']
+        if api_key != app.config['AUTHENTICATION']:
+            return False
+    return True
+
+def protect_view(fn):
+    @wraps(fn)
+    def inner(*args, **kwargs):
+        if not authenticate_request():
+            return 'Invalid API key', 401
+        return fn(*args, **kwargs)
+    return inner
+
+
 class ScoutView(MethodView):
     def __init__(self, *args, **kwargs):
         self.validator = RequestValidator()
         super(ScoutView, self).__init__(*args, **kwargs)
 
     def dispatch_request(self, *args, **kwargs):
-        if app.config['AUTHENTICATION']:
-            # Check headers and request.args for `key=<key>`.
-            api_key = None
-            if request.headers.get('key'):
-                api_key = request.headers['key']
-            elif request.args.get('key'):
-                api_key = request.args['key']
-            if api_key != app.config['AUTHENTICATION']:
-                return 'Invalid API key', 401
+        if not authenticate_request():
+            return 'Invalid API key', 401
         return super(ScoutView, self).dispatch_request(*args, **kwargs)
 
     @classmethod
@@ -849,7 +863,7 @@ AttachmentView.register(app, 'attachment_view', '/documents/<document_id>/attach
 
 
 @app.route('/documents/<document_id>/<path:pk>/download/')
-#@protect_view
+@protect_view
 def attachment_download(document_id, filename):
     document = get_object_or_404(
         Document.all(),
@@ -869,8 +883,8 @@ def attachment_download(document_id, filename):
 
 @app.route('/<index_name>/search/', defaults={'attachments': False})
 @app.route('/<index_name>/search/attachments/', defaults={'attachments': True})
-#@protect_view
-def search(index_name, attachments):
+@protect_view
+def index_search(index_name, attachments):
     """
     Search the index for documents matching the given query.
     """
@@ -889,8 +903,6 @@ def search(index_name, attachments):
     index = get_object_or_404(Index, Index.name == index_name)
     query = index.search(search_query, ranking, True, **filters)
     if attachments:
-        p1 = (Document._meta.primary_key == Attachment.document)
-        p2 = (Attachment.hash == BlobData.hash)
         query = (query
                  .select(
                      Document._meta.primary_key,
@@ -898,8 +910,10 @@ def search(index_name, attachments):
                      Attachment.mimetype,
                      Attachment.document_id)
                  .switch(Document)
-                 .join(Attachment, JOIN.INNER, p1)
-                 .join(BlobData, JOIN.INNER, p2)
+                 .join(
+                     Attachment,
+                     on=(Document._meta.primary_key == Attachment.document))
+                 .join(BlobData, on=(Attachment.hash == BlobData.hash))
                  .dicts()
                  .naive())
 
@@ -908,12 +922,13 @@ def search(index_name, attachments):
             paginate_by=200,
             page_var=app.config['PAGE_VAR'],
             check_bounds=False)
+
         documents = list(pq.get_object_list())
-        pk = operator.itemgetter(Document._meta.primary_key.name)
+        pk = Document._meta.primary_key.name
         for document in documents:
             document['data'] = url_for('attachment_download',
-                                       document_id=pk(document),
-                                       filename=document['filename'])
+                                       document_id=document[pk],
+                                       pk=document['filename'])
     else:
         pq = PaginatedQuery(
             query,

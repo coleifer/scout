@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import urllib
 import urllib2
 import urlparse
@@ -62,10 +63,13 @@ class Scout(object):
     def delete_index(self, name):
         return self.delete('/%s/' % name)
 
+    def get_index(self, name, **kwargs):
+        return self.get('/%s/' % name, **kwargs)
+
     def get_documents(self, **kwargs):
         return self.get('/documents/', **kwargs)
 
-    def store_document(self, content, indexes, identifier=None, **metadata):
+    def create_document(self, content, indexes, identifier=None, **metadata):
         if not isinstance(indexes, (list, tuple)):
             indexes = [indexes]
         return self.post('/documents/', {
@@ -77,7 +81,7 @@ class Scout(object):
     def update_document(self, document_id=None, content=None, indexes=None,
                         metadata=None, identifier=None):
         if not document_id and not identifier:
-            raise ValueError('`document_id` or `identifier` must be provided.')
+            raise ValueError('`document_id` must be provided.')
 
         data = {}
         if content is not None:
@@ -92,40 +96,31 @@ class Scout(object):
         if not data:
             raise ValueError('Nothing to update.')
 
-        if document_id:
-            return self.post('/documents/%s/' % document_id, data)
-        else:
-            return self.post('/documents/identifier/%s/' % identifier, data)
+        return self.post('/documents/%s/' % document_id, data)
 
-    def delete_document(self, document_id=None, identifier=None):
-        if not document_id and not identifier:
-            raise ValueError('`document_id` or `identifier` must be provided.')
+    def delete_document(self, document_id=None):
+        if not document_id:
+            raise ValueError('`document_id` must be provided.')
 
-        if document_id:
-            return self.delete('/documents/%s/' % document_id)
-        else:
-            return self.delete('/documents/identifier/%s/' % identifier)
+        return self.delete('/documents/%s/' % document_id)
 
-    def get_document(self, document_id=None, identifier=None):
-        if not document_id and not identifier:
-            raise ValueError('`document_id` or `identifier` must be provided.')
+    def get_document(self, document_id=None):
+        if not document_id:
+            raise ValueError('`document_id` must be provided.')
 
-        if document_id:
-            return self.get('/documents/%s/' % document_id)
-        else:
-            return self.get('/documents/identifier/%s/' % identifier)
+        return self.get('/documents/%s/' % document_id)
 
-    def store_with_attachments(self, content, indexes, filenames,
-                               identifier=None, **metadata):
-        doc = self.store_document(content, indexes, identifier, **metadata)
+    def create_with_attachments(self, content, indexes, filenames,
+                                identifier=None, **metadata):
+        doc = self.create_document(content, indexes, identifier, **metadata)
         self.attach_files(doc['id'], filenames)
 
-    def attach_file(self, document_id, filename, content, compress=False):
-        data = {'filename': filename}
+    def attach_file(self, document_id, filename, data, compress=False):
+        post = {'filename': filename}
         if compress:
-            content = zlib.compress(content)
-        data['data'] = base64.b64encode(content)
-        return self.post('/documents/%s/attachments/' % document_id, data)
+            data = zlib.compress(data)
+        post['data'] = base64.b64encode(data)
+        return self.post('/documents/%s/attachments/' % document_id, post)
 
     def attach_files(self, document_id, filenames):
         for filename in filenames:
@@ -138,8 +133,9 @@ class Scout(object):
                 with open(filename, 'rb') as fh:
                     data = fh.read()
             elif os.path.isdir(filename):
-                filenames = [filename for filename in os.listdir(filename)
-                             if os.path.isfile(filename)]
+                filenames = [os.path.join(filename, item)
+                             for item in os.listdir(filename)
+                             if os.path.isfile(item)]
                 self.attach_files(document_id, filenames)
             else:
                 raise ValueError('Unrecognized file: %s' % filename)
@@ -154,10 +150,21 @@ class Scout(object):
         return self.delete('/documents/%s/attachments/%s/' %
                            (document_id, filename))
 
-    def fetch_attachment(self, document_id, filename):
+    def get_attachments(self, document_id):
+        return self.get('/documents/%s/attachments/' % document_id)
+
+    def get_attachment(self, document_id, filename):
+        return self.get('/documents/%s/attachments/%s/' %
+                        (document_id, filename))
+
+    def download_attachment(self, document_id, filename):
         return self.get('/documents/%s/attachments/%s/download/' %
                         (document_id, filename))
 
     def search(self, index, query, **kwargs):
         kwargs['q'] = query
         return self.get('/%s/search/' % index, **kwargs)
+
+    def search_attachments(self, index, query, **kwargs):
+        kwargs['q'] = query
+        return self.get('/%s/search/attachments/' % index, **kwargs)
