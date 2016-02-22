@@ -862,6 +862,22 @@ DocumentView.register(app, 'document_view', '/documents/')
 AttachmentView.register(app, 'attachment_view', '/documents/<document_id>/attachments/', 'path')
 
 
+@app.route('/documents/<document_id>/upload/', methods=['POST'])
+@protect_view
+def attachment_upload(document_id):
+    document = get_object_or_404(
+        Document.all(),
+        Document._meta.primary_key == document_id)
+
+    if 'data' not in request.files:
+        error('Missing required data file.')
+
+    filename = request.files['data'].filename
+    data = request.files['data'].read()
+    attachment = document.attach(filename, data)
+    return jsonify(attachment.serialize())
+
+
 @app.route('/documents/<document_id>/<path:pk>/download/')
 @protect_view
 def attachment_download(document_id, filename):
