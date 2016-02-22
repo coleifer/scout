@@ -400,9 +400,9 @@ class TestSearchViews(BaseTestCase):
         response = self.app.get('/')
         data = json.loads(response.data)
         self.assertEqual(data['indexes'], [
-            {'documents': 0, 'id': 1, 'name': 'i0'},
-            {'documents': 0, 'id': 2, 'name': 'i1'},
-            {'documents': 0, 'id': 3, 'name': 'i2'},
+            {'document_count': 0, 'documents': '/1/', 'id': 1, 'name': 'i0'},
+            {'document_count': 0, 'documents': '/2/', 'id': 2, 'name': 'i1'},
+            {'document_count': 0, 'documents': '/3/', 'id': 3, 'name': 'i2'},
         ])
 
     def test_index_missing(self):
@@ -484,8 +484,10 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'k1': 'v1', 'k2': 'v2'}})
 
         self.assertEqual(response, {
+            'attachments': '/documents/1/attachments/',
             'content': 'doc 1',
             'id': 1,
+            'identifier': None,
             'indexes': ['idx-a'],
             'metadata': {'k1': 'v1', 'k2': 'v2'}})
 
@@ -493,8 +495,10 @@ class TestSearchViews(BaseTestCase):
             'content': 'doc 2',
             'indexes': ['idx-a', 'idx-b']})
         self.assertEqual(response, {
+            'attachments': '/documents/2/attachments/',
             'content': 'doc 2',
             'id': 2,
+            'identifier': None,
             'indexes': ['idx-a', 'idx-b'],
             'metadata': {}})
 
@@ -533,23 +537,10 @@ class TestSearchViews(BaseTestCase):
         response = self.app.get('/documents/%s/' % doc.get_id())
         data = json.loads(response.data)
         self.assertEqual(data, {
+            'attachments': '/documents/%s/attachments/' % doc.get_id(),
             'content': 'test doc',
             'id': doc.get_id(),
             'identifier': None,
-            'indexes': ['idx'],
-            'metadata': {'foo': 'bar'}})
-
-    def test_document_detail_by_identifier(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('test doc', identifier='td', foo='bar')
-        alt_doc = idx.index('alt doc', identifier='ad')
-
-        response = self.app.get('/documents/identifier/td/')
-        data = json.loads(response.data)
-        self.assertEqual(data, {
-            'content': 'test doc',
-            'id': doc.get_id(),
-            'identifier': doc.identifier,
             'indexes': ['idx'],
             'metadata': {'foo': 'bar'}})
 
@@ -764,7 +755,7 @@ class TestSearchViews(BaseTestCase):
                 with assert_query_count(6):
                     self.search(idx, query, foo='bar')
 
-        with assert_query_count(6):
+        with assert_query_count(7):
             # Same as above.
             self.app.get('/idx-a/')
 
@@ -775,7 +766,8 @@ class TestSearchViews(BaseTestCase):
         for i in range(10):
             Index.create(name='idx-%s' % i)
 
-        with assert_query_count(1):
+        with assert_query_count(2):
+            # 2 queries, one for list, one for pagination.
             self.app.get('/')
 
     def test_authentication(self):
@@ -794,13 +786,15 @@ class TestSearchViews(BaseTestCase):
 
         resp = self.app.get('/?key=test')
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(json.loads(resp.data), {'indexes': [
-            {'id': 1, 'name': 'idx', 'documents': 0}]})
+        self.assertEqual(json.loads(resp.data)['indexes'], [{
+            'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/1/'
+        }])
 
         resp = self.app.get('/', headers={'key': 'test'})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(json.loads(resp.data), {'indexes': [
-            {'id': 1, 'name': 'idx', 'documents': 0}]})
+        self.assertEqual(json.loads(resp.data)['indexes'], [{
+            'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/1/'
+        }])
 
 
 def main():

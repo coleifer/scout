@@ -208,12 +208,12 @@ class Document(FTSBaseModel):
             indexes = (Index
                        .select(Index.name)
                        .join(IndexDocument)
-                       .where(IndexDocument.document == self.id)
+                       .where(IndexDocument.document == self.get_id())
                        .tuples())
             data['indexes'] = [row[0] for row in indexes]
 
         if include_score:
-            data['score'] = document.score
+            data['score'] = self.score
 
         return data
 
@@ -437,11 +437,15 @@ class Index(BaseModel):
                 .where(IndexDocument.index == self))
 
     def serialize(self):
+        if hasattr(self, 'doc_count'):
+            doc_count = self.doc_count
+        else:
+            doc_count = self.documents.count()
         return {
             'id': self.id,
             'name': self.name,
             'documents': url_for('index_view_detail', pk=self.id),
-            'document_count': self.documents.count(),
+            'document_count': doc_count,
         }
 
 
@@ -468,7 +472,7 @@ class InvalidRequestException(Exception):
         return jsonify({'error': self.error_message}), self.code
 
 
-def error(message, code=400):
+def error(message, code=None):
     """
     Trigger an Exception from a view that will short-circuit the Response
     cycle and return a 400 "Bad request" with the given error message.
@@ -522,7 +526,7 @@ class RequestValidator(object):
                 invalid_names.append(index_name)
 
         if invalid_names:
-            abort('The following indexes were not found: %s.' %
+            error('The following indexes were not found: %s.' %
                   ', '.join(invalid_names))
 
         return indexes
@@ -542,7 +546,7 @@ class ScoutView(MethodView):
             elif request.args.get('key'):
                 api_key = request.args['key']
             if api_key != app.config['AUTHENTICATION']:
-                error('Invalid API key', 401)
+                return 'Invalid API key', 401
         return super(ScoutView, self).dispatch_request(*args, **kwargs)
 
     @classmethod
@@ -552,7 +556,8 @@ class ScoutView(MethodView):
         app.add_url_rule(url, name, defaults={'pk': None}, view_func=view_func,
                          methods=['GET'])
         # Add POST on index view.
-        app.add_url_rule(url, name, view_func=view_func, methods=['POST'])
+        app.add_url_rule(url, name, defaults={'pk': None}, view_func=view_func,
+                         methods=['POST'])
 
         # Add detail views.
         if pk_type is None:
@@ -561,7 +566,7 @@ class ScoutView(MethodView):
             detail_url = url + '<%s:pk>/' % pk_type
         name += '_detail'
         app.add_url_rule(detail_url, name, view_func=view_func,
-                         methods=['GET', 'PUT', 'DELETE'])
+                         methods=['GET', 'PUT', 'POST', 'DELETE'])
 
     def paginated_query(self, query, paginate_by=None):
         if paginate_by is None:
@@ -585,7 +590,7 @@ class IndexView(ScoutView):
         index = get_object_or_404(Index, Index.name == pk)
         response = index.serialize()
 
-        query = index.documents.order_by(Document._meta.primary_key.desc())
+        query = index.documents
         pq = self.paginated_query(query)
         response.update(
             documents=Document.serialize_query(pq.get_object_list()),
@@ -596,7 +601,7 @@ class IndexView(ScoutView):
 
     def get_list(self):
         query = (Index
-                 .select(Index, fn.COUNT(IndexDocument.id).alias('count'))
+                 .select(Index, fn.COUNT(IndexDocument.id).alias('doc_count'))
                  .join(IndexDocument, JOIN_LEFT_OUTER)
                  .group_by(Index)
                  .order_by(Index.name))
@@ -606,7 +611,10 @@ class IndexView(ScoutView):
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
-    def post(self):
+    def post(self, pk):
+        if pk is not None:
+            return self.put(pk)
+
         data = self.validator.parse_post(['name'])
 
         with database.atomic():
@@ -676,7 +684,10 @@ class DocumentView(ScoutView):
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
-    def post(self):
+    def post(self, pk):
+        if pk is not None:
+            return self.put(pk)
+
         data = self.validator.parse_post(
             ['content'],
             ['identifier', 'index', 'indexes', 'metadata'])
@@ -779,7 +790,10 @@ class AttachmentView(ScoutView):
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
-    def post(self, document_id):
+    def post(self, document_id, pk):
+        if pk is not None:
+            return self.put(pk)
+
         document = self._get_document(document_id)
         post = self.validator.parse_post(['filename', 'data'], ['compressed'])
 
@@ -894,7 +908,7 @@ def search(index_name, attachments):
             paginate_by=app.config['PAGINATE_BY'],
             page_var=app.config['PAGE_VAR'],
             check_bounds=False)
-        documents = _serialize_documents(
+        documents = Document.serialize_query(
             pq.get_object_list(),
             include_score=ranking is not None)
 
