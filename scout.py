@@ -262,6 +262,9 @@ class Attachment(BaseModel):
         return len(self.blob.data)
 
     def serialize(self):
+        data_params = {'document_id': self.document_id, 'pk': self.filename}
+        if app.config['AUTHENTICATION']:
+            data_params['key'] = app.config['AUTHENTICATION']
         return {
             'filename': self.filename,
             'mimetype': self.mimetype,
@@ -270,10 +273,7 @@ class Attachment(BaseModel):
             'document': url_for(
                 'document_view_detail',
                 pk=self.document_id),
-            'data': url_for(
-                'attachment_download',
-                document_id=self.document_id,
-                pk=self.filename),
+            'data': url_for('attachment_download', **data_params),
         }
 
 
@@ -922,6 +922,7 @@ def index_search(index_name, attachments):
         query = (query
                  .select(
                      Document._meta.primary_key,
+                     Document.identifier,
                      Attachment.filename,
                      Attachment.mimetype,
                      Attachment.document_id)
@@ -929,7 +930,7 @@ def index_search(index_name, attachments):
                  .join(
                      Attachment,
                      on=(Document._meta.primary_key == Attachment.document))
-                 .join(BlobData, on=(Attachment.hash == BlobData.hash))
+                 #.join(BlobData, on=(Attachment.hash == BlobData.hash))
                  .dicts()
                  .naive())
 
@@ -942,9 +943,12 @@ def index_search(index_name, attachments):
         documents = list(pq.get_object_list())
         pk = Document._meta.primary_key.name
         for document in documents:
-            document['data'] = url_for('attachment_download',
-                                       document_id=document[pk],
-                                       pk=document['filename'])
+            data_params = {
+                'document_id': document[pk],
+                'pk': document['filename']}
+            if app.config['AUTHENTICATION']:
+                data_params['key'] = app.config['AUTHENTICATION']
+            document['data'] = url_for('attachment_download', **data_params)
     else:
         pq = PaginatedQuery(
             query,
