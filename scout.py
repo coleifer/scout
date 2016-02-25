@@ -486,8 +486,15 @@ class RequestValidator(object):
         Clean and validate POSTed JSON data by defining sets of required and
         optional keys.
         """
+        if request.headers.get('content-type') == 'application/json':
+            data = request.data
+        elif 'data' not in request.form:
+            error('Missing correct content-type or missing "data" field.')
+        else:
+            data = request.form['data']
+
         try:
-            data = json.loads(request.data)
+            data = json.loads(data)
         except ValueError:
             error('Unable to parse JSON data from request.')
 
@@ -737,6 +744,11 @@ class DocumentView(ScoutView):
 
         for index in indexes:
             index.add_to_index(document)
+
+        if len(request.files):
+            for identifier in request.files:
+                file_obj = request.files[identifer]
+                document.attach(file_obj.filename, file_obj.read())
 
         return self.detail(document.get_id())
 

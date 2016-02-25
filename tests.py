@@ -367,7 +367,10 @@ class TestSearchViews(BaseTestCase):
         app.config['AUTHENTICATION'] = None
 
     def post_json(self, url, data, parse_response=True):
-        response = self.app.post(url, data=json.dumps(data))
+        response = self.app.post(
+            url,
+            data=json.dumps(data),
+            headers={'content-type': 'application/json'})
         if parse_response:
             return json.loads(response.data)
         return response
@@ -388,6 +391,15 @@ class TestSearchViews(BaseTestCase):
 
     def test_create_invalid_json(self):
         response = self.app.post('/', data='not json')
+        data = json.loads(response.data)
+        self.assertEqual(
+            data,
+            {'error': 'Missing correct content-type or missing "data" field.'})
+
+        response = self.app.post(
+            '/',
+            data='not json',
+            headers={'content-type': 'application/json'})
         data = json.loads(response.data)
         self.assertEqual(
             data,
