@@ -1,5 +1,7 @@
 import base64
 import json
+import mimetools
+import mimetypes
 import os
 import urllib
 import urllib2
@@ -19,7 +21,7 @@ class Scout(object):
     def get_full_url(self, url):
         return urlparse.urljoin(self.endpoint, url)
 
-    def get(self, url, **kwargs):
+    def get_raw(self, url, **kwargs):
         headers = {'Content-Type': 'application/json'}
         if self.key:
             headers['key'] = self.key
@@ -29,15 +31,69 @@ class Scout(object):
             url += urllib.urlencode(kwargs, True)
         request = urllib2.Request(self.get_full_url(url), headers=headers)
         fh = urllib2.urlopen(request)
-        return json.loads(fh.read())
+        return fh.read()
 
-    def post(self, url, data=None):
+    def get(self, url, **kwargs):
+        return json.loads(self.get_raw(url, **kwargs))
+
+    def post(self, url, data=None, files=None):
+        if files:
+            return self.post_files(url, data, files)
+        else:
+            return self.post_json(url, data)
+
+    def post_json(self, url, data=None):
         headers = {'Content-Type': 'application/json'}
         if self.key:
             headers['key'] = self.key
         request = urllib2.Request(
             self.get_full_url(url),
             data=json.dumps(data or {}),
+            headers=headers)
+        fh = urllib2.urlopen(request)
+        return json.loads(fh.read())
+
+    def post_files(self, url, json_data, files=None):
+        if not files or not isinstance(files, dict):
+            raise ValueError('One or more files is required. Files should be '
+                             'passed as a dictionary of filename: file-like-'
+                             'object.')
+        boundary = mimetools.choose_boundary()
+        form_files = []
+        for i, (filename, file_obj) in enumerate(files.items()):
+            try:
+                data = file_obj.read()
+            except AttributeError:
+                data = bytes(data)
+            mimetype = mimetypes.guess_type(filename)[0]
+            form_files.append((
+                'file_%s' % i,
+                filename,
+                mimetype or 'application/octet-stream',
+                data))
+
+        part_boundary = '--' + boundary
+        parts = [
+            part_boundary,
+            'Content-Disposition: form-data; name="data"',
+            '',
+            json.dumps(json_data)]
+        for field_name, filename, mimetype, data in form_files:
+            parts.extend((
+                part_boundary,
+                'Content-Disposition: file; name="%s"; filename="%s"' % (
+                    field_name, filename),
+                'Content-Type: %s' % mimetype,
+                '',
+                data))
+
+        headers = {'Content-Type': 'multipart/form-data; boundary=%s' %
+                   boundary}
+        if self.key:
+            headers['key'] = self.key
+        request = urllib2.Request(
+            self.get_full_url(url),
+            data='\r\n'.join(parts),
             headers=headers)
         fh = urllib2.urlopen(request)
         return json.loads(fh.read())
@@ -69,17 +125,19 @@ class Scout(object):
     def get_documents(self, **kwargs):
         return self.get('/documents/', **kwargs)
 
-    def create_document(self, content, indexes, identifier=None, **metadata):
+    def create_document(self, content, indexes, identifier=None,
+                        attachments=None, **metadata):
         if not isinstance(indexes, (list, tuple)):
             indexes = [indexes]
-        return self.post('/documents/', {
+        post_data = {
             'content': content,
             'identifier': identifier,
             'indexes': indexes,
-            'metadata': metadata})
+            'metadata': metadata}
+        return self.post('/documents/', post_data, attachments)
 
     def update_document(self, document_id=None, content=None, indexes=None,
-                        metadata=None, identifier=None):
+                        metadata=None, identifier=None, attachments=None):
         if not document_id and not identifier:
             raise ValueError('`document_id` must be provided.')
 
@@ -93,10 +151,10 @@ class Scout(object):
         if metadata is not None:
             data['metadata'] = metadata
 
-        if not data:
+        if not data and not attachments:
             raise ValueError('Nothing to update.')
 
-        return self.post('/documents/%s/' % document_id, data)
+        return self.post('/documents/%s/' % document_id, data, attachments)
 
     def delete_document(self, document_id=None):
         if not document_id:
@@ -110,45 +168,18 @@ class Scout(object):
 
         return self.get('/documents/%s/' % document_id)
 
-    def create_with_attachments(self, content, indexes, filenames,
-                                identifier=None, **metadata):
-        doc = self.create_document(content, indexes, identifier, **metadata)
-        self.attach_files(doc['id'], filenames)
-
-    def attach_file(self, document_id, filename, data, compress=False):
-        post = {'filename': filename}
-        if compress:
-            data = zlib.compress(data)
-        post['data'] = base64.b64encode(data)
-        return self.post('/documents/%s/attachments/' % document_id, post)
-
-    def attach_files(self, document_id, filenames):
-        for filename in filenames:
-            if filename.startswith('http:') or filename.startswith('https:'):
-                parse_result = urlparse.urlparse(filename)
-                fh = urllib2.urlopen(filename)
-                filename = parse_result.path
-                data = fh.read()
-            elif os.path.isfile(filename):
-                with open(filename, 'rb') as fh:
-                    data = fh.read()
-            elif os.path.isdir(filename):
-                filenames = [os.path.join(filename, item)
-                             for item in os.listdir(filename)
-                             if os.path.isfile(item)]
-                self.attach_files(document_id, filenames)
-            else:
-                raise ValueError('Unrecognized file: %s' % filename)
-
-            self.attach_file(
-                document_id,
-                os.path.basename(filename),
-                data,
-                compress=True)
+    def attach_files(self, document_id, attachments):
+        return self.post_files('/documents/%s/attachments/' % document_id,
+                               {}, attachments)
 
     def detach_file(self, document_id, filename):
         return self.delete('/documents/%s/attachments/%s/' %
                            (document_id, filename))
+
+    def update_file(self, document_id, filename, file_object):
+        return self.post_filese('/documents/%s/attachments/%s/' %
+                                (document_id, filename),
+                                {}, {filename: file_object})
 
     def get_attachments(self, document_id):
         return self.get('/documents/%s/attachments/' % document_id)
@@ -158,8 +189,8 @@ class Scout(object):
                         (document_id, filename))
 
     def download_attachment(self, document_id, filename):
-        return self.get('/documents/%s/attachments/%s/download/' %
-                        (document_id, filename))
+        return self.get_raw('/documents/%s/attachments/%s/download/' %
+                            (document_id, filename))
 
     def search(self, index, query, **kwargs):
         kwargs['q'] = query
