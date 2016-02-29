@@ -660,6 +660,35 @@ class TestSearchViews(BaseTestCase):
         # Sanity check.
         self.assertEqual(Document.select().count(), 2)
 
+    def test_document_detail_update_attachments(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('test doc', foo='bar', nug='baze')
+        doc.attach('foo.jpg', 'empty')
+        url = '/documents/%s/' % doc.get_id()
+
+        json_data = json.dumps({'content': 'test doc-edited'})
+        response = self.app.post(url, data={
+            'data': json_data,
+            'file_0': (StringIO('xx'), 'foo.jpg'),
+            'file_1': (StringIO('yy'), 'foo2.jpg')})
+
+        resp_data = json.loads(response.data)
+        self.assertEqual(resp_data, {
+            'attachments': '/documents/1/attachments/',
+            'content': 'test doc-edited',
+            'id': 1,
+            'identifier': None,
+            'indexes': ['idx'],
+            'metadata': {'foo': 'bar', 'nug': 'baze'}})
+
+        self.assertEqual(Attachment.select().count(), 2)
+        self.assertEqual(BlobData.select().count(), 3)
+
+        # Existing file updated, new file added.
+        foo, foo2 = Attachment.select().order_by(Attachment.filename)
+        self.assertEqual(foo.blob.data, 'xx')
+        self.assertEqual(foo2.blob.data, 'yy')
+
     def test_document_detail_delete(self):
         idx = Index.create(name='idx')
         alt_idx = Index.create(name='alt-idx')
