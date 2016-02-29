@@ -888,7 +888,7 @@ DocumentView.register(app, 'document_view', '/documents/')
 AttachmentView.register(app, 'attachment_view', '/documents/<document_id>/attachments/', 'path')
 
 
-@app.route('/documents/<document_id>/<path:pk>/download/')
+@app.route('/documents/<document_id>/attachments/<path:pk>/download/')
 @protect_view
 def attachment_download(document_id, pk):
     document = get_object_or_404(

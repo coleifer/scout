@@ -552,7 +552,7 @@ class TestSearchViews(BaseTestCase):
                     'data_length': 9,
                     'filename': 'test1.txt',
                     'document': '/documents/1/',
-                    'data': '/documents/1/test1.txt/download/',
+                    'data': '/documents/1/attachments/test1.txt/download/',
                 },
                 {
                     'mimetype': 'image/jpeg',
@@ -560,7 +560,7 @@ class TestSearchViews(BaseTestCase):
                     'data_length': 9,
                     'filename': 'test2.jpg',
                     'document': '/documents/1/',
-                    'data': '/documents/1/test2.jpg/download/',
+                    'data': '/documents/1/attachments/test2.jpg/download/',
                 },
             ],
         })
@@ -738,7 +738,7 @@ class TestSearchViews(BaseTestCase):
                 'data_length': 1,
                 'filename': 'bar.png',
                 'document': '/documents/1/',
-                'data': '/documents/1/bar.png/download/',
+                'data': '/documents/1/attachments/bar.png/download/',
             },
             {
                 'mimetype': 'image/jpeg',
@@ -746,7 +746,7 @@ class TestSearchViews(BaseTestCase):
                 'data_length': 1,
                 'filename': 'foo.jpg',
                 'document': '/documents/1/',
-                'data': '/documents/1/foo.jpg/download/',
+                'data': '/documents/1/attachments/foo.jpg/download/',
             },
         ])
 
@@ -758,7 +758,7 @@ class TestSearchViews(BaseTestCase):
             'data_length': 1,
             'filename': 'foo.jpg',
             'document': '/documents/1/',
-            'data': '/documents/1/foo.jpg/download/',
+            'data': '/documents/1/attachments/foo.jpg/download/',
         })
 
         resp = self.app.delete('/documents/1/attachments/foo.jpg/')
@@ -769,6 +769,9 @@ class TestSearchViews(BaseTestCase):
             'file_0': (StringIO('zz'), 'bar.png')})
         resp_data = json.loads(resp.data)
         self.assertEqual(resp_data['data_length'], 2)
+
+        resp = self.app.get('/documents/1/attachments/bar.png/download/')
+        self.assertEqual(resp.data, 'zz')
 
     def search(self, index, query, page=1, **filters):
         filters.setdefault('ranking', Index.RANK_BM25)
