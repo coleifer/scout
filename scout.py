@@ -44,6 +44,7 @@ try:
     from playhouse.sqlite_ext import FTS5Model
 except ImportError:
     FTS5Model = None
+from werkzeug import secure_filename
 from werkzeug.serving import run_simple
 
 
@@ -154,6 +155,7 @@ class Document(FTSBaseModel):
                 .where(IndexDocument.document == self.get_id()))
 
     def attach(self, filename, data):
+        filename = secure_filename(filename)
         hash_obj = hashlib.sha256(data)
         data_hash = base64.b64encode(hash_obj.digest())
         try:
@@ -696,7 +698,14 @@ class IndexView(ScoutView):
         return jsonify({'success': True})
 
 
-class DocumentView(ScoutView):
+class _FileProcessingView(ScoutView):
+    def attach_files(self, document):
+        for identifier in request.files:
+            file_obj = request.files[identifier]
+            document.attach(file_obj.filename, file_obj.read())
+
+
+class DocumentView(_FileProcessingView):
     def _get_document(self, pk):
         return get_object_or_404(
             Document.all(),
@@ -746,9 +755,7 @@ class DocumentView(ScoutView):
             index.add_to_index(document)
 
         if len(request.files):
-            for identifier in request.files:
-                file_obj = request.files[identifer]
-                document.attach(file_obj.filename, file_obj.read())
+            self.attach_files(document)
 
         return self.detail(document.get_id())
 
@@ -777,6 +784,9 @@ class DocumentView(ScoutView):
             if data['metadata']:
                 document.metadata = data['metadata']
 
+        if len(request.files):
+            self.attach_files(document)
+
         indexes = self.validator.validate_indexes(data, required=False)
         if indexes is not None:
             with database.atomic():
@@ -799,6 +809,10 @@ class DocumentView(ScoutView):
             (IndexDocument
              .delete()
              .where(IndexDocument.document == document)
+             .execute())
+            (Attachment
+             .delete()
+             .where(Attachment.document == document)
              .execute())
             Metadata.delete().where(Metadata.document == document).execute()
             document.delete_instance()
@@ -833,11 +847,12 @@ class AttachmentView(ScoutView):
 
     def create(self, document_id):
         document = self._get_document(document_id)
-        post = self.validator.parse_post(['filename', 'data'], ['compressed'])
+        self.validator.parse_post([], [])  # Ensure POST data is clean.
 
-        decoded = base64.b64decode(post['data'])
-        if post.get('compressed'):
-            decoded = zlib.decompress(decoded)
+        if len(request.files):
+            self.attach_files(document)
+        else:
+            error('No file attachments found.')
 
         attachment = document.attach(post['filename'], decoded)
         return jsonify(attachment.serialize())
@@ -845,20 +860,16 @@ class AttachmentView(ScoutView):
     def update(self, document_id, pk):
         document = self._get_document(document_id)
         attachment = self._get_attachment(document, pk)
-        post = self.validator.parse_post(
-            [], ['filename', 'data', 'compressed'])
+        self.validator.parse_post([], [])  # Ensure POST data is clean.
 
-        if post.get('filename'):
-            attachment.filename = post['filename']
-            attachment.mimetype = mimetypes.guess_type(post['filename'])[0]
-            attachment.save(only=[Attachment.filename, Attachment.mimetype])
-
-        if 'data' in post:
-            data = base64.b64decode(post['data'])
-            if post.get('compressed'):
-                data = zlib.decompress(data)
+        nfiles = len(request.files)
+        if nfiles == 1:
             attachment.delete_instance()
-            document.attach(attachment.filename, data)
+            self.attach_files(document)
+        elif nfiles > 1:
+            error('Only one attachment permitted when performing update.')
+        else:
+            error('No file attachment found.')
 
         return self.detail(document.get_id(), attachment.filename)
 
@@ -872,22 +883,6 @@ class AttachmentView(ScoutView):
 IndexView.register(app, 'index_view', '/')
 DocumentView.register(app, 'document_view', '/documents/')
 AttachmentView.register(app, 'attachment_view', '/documents/<document_id>/attachments/', 'path')
-
-
-@app.route('/documents/<document_id>/upload/', methods=['POST'])
-@protect_view
-def attachment_upload(document_id):
-    document = get_object_or_404(
-        Document.all(),
-        Document._meta.primary_key == document_id)
-
-    if 'data' not in request.files:
-        error('Missing required data file.')
-
-    filename = request.files['data'].filename
-    data = request.files['data'].read()
-    attachment = document.attach(filename, data)
-    return jsonify(attachment.serialize())
 
 
 @app.route('/documents/<document_id>/<path:pk>/download/')

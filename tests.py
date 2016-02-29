@@ -3,11 +3,14 @@ import optparse
 import sys
 import unittest
 import urllib
+from StringIO import StringIO
 
 from playhouse.sqlite_ext import *
 from playhouse.test_utils import assert_query_count
 
 from scout import app
+from scout import Attachment
+from scout import BlobData
 from scout import database
 from scout import Document
 from scout import IndexDocument
@@ -50,6 +53,8 @@ class BaseTestCase(unittest.TestCase):
         database.connect()
         assert database.get_tables() == []
         database.create_tables([
+            Attachment,
+            BlobData,
             Document,
             Metadata,
             Index,
@@ -513,6 +518,52 @@ class TestSearchViews(BaseTestCase):
             'identifier': None,
             'indexes': ['idx-a', 'idx-b'],
             'metadata': {}})
+
+    def test_index_document_attachments(self):
+        idx_a = Index.create(name='idx-a')
+        json_data = json.dumps({
+            'content': 'doc a',
+            'index': 'idx-a',
+            'metadata': {'k1': 'v1-a', 'k2': 'v2-a'},
+        })
+        response = self.app.post('/documents/', data={
+            'data': json_data,
+            'file_0': (StringIO('testfile1'), 'test1.txt'),
+            'file_1': (StringIO('testfile2'), 'test2.jpg')})
+
+        resp_data = json.loads(response.data)
+        self.assertEqual(resp_data, {
+            'attachments': '/documents/1/attachments/',
+            'content': 'doc a',
+            'id': 1,
+            'identifier': None,
+            'indexes': ['idx-a'],
+            'metadata': {'k1': 'v1-a', 'k2': 'v2-a'}})
+
+        Attachment.update(timestamp='2016-02-01 01:02:03').execute()
+        resp = self.app.get(resp_data['attachments'])
+        self.assertEqual(json.loads(resp.data), {
+            'pages': 1,
+            'page': 1,
+            'attachments': [
+                {
+                    'mimetype': 'text/plain',
+                    'timestamp': '2016-02-01 01:02:03',
+                    'data_length': 9,
+                    'filename': 'test1.txt',
+                    'document': '/documents/1/',
+                    'data': '/documents/1/test1.txt/download/',
+                },
+                {
+                    'mimetype': 'image/jpeg',
+                    'timestamp': '2016-02-01 01:02:03',
+                    'data_length': 9,
+                    'filename': 'test2.jpg',
+                    'document': '/documents/1/',
+                    'data': '/documents/1/test2.jpg/download/',
+                },
+            ],
+        })
 
     def test_index_document_validation(self):
         idx = Index.create(name='idx')
