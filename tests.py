@@ -695,16 +695,20 @@ class TestSearchViews(BaseTestCase):
 
         d1 = idx.index('doc 1', k1='v1', k2='v2')
         d2 = idx.index('doc 2', k3='v3')
+        d2.attach('foo.jpg', 'bar')
+
         alt_idx.add_to_index(d1)
         alt_idx.add_to_index(d2)
 
         self.assertEqual(Metadata.select().count(), 3)
+        self.assertEqual(Attachment.select().count(), 1)
 
         response = self.app.delete('/documents/%s/' % d2.get_id())
         data = json.loads(response.data)
         self.assertEqual(data, {'success': True})
 
         self.assertEqual(Metadata.select().count(), 2)
+        self.assertEqual(Attachment.select().count(), 0)
 
         response = self.app.delete('/documents/%s/' % d2.get_id())
         self.assertEqual(response.status_code, 404)
@@ -717,6 +721,54 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(
             [d.get_id() for d in alt_idx.documents],
             [d1.get_id()])
+
+    def test_attachment_views(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('doc 1')
+        doc.attach('foo.jpg', 'x')
+        doc.attach('bar.png', 'x')
+        Attachment.update(timestamp='2016-01-02 03:04:05').execute()
+
+        resp = self.app.get('/documents/1/attachments/')
+        resp_data = json.loads(resp.data)
+        self.assertEqual(resp_data['attachments'], [
+            {
+                'mimetype': 'image/png',
+                'timestamp': '2016-01-02 03:04:05',
+                'data_length': 1,
+                'filename': 'bar.png',
+                'document': '/documents/1/',
+                'data': '/documents/1/bar.png/download/',
+            },
+            {
+                'mimetype': 'image/jpeg',
+                'timestamp': '2016-01-02 03:04:05',
+                'data_length': 1,
+                'filename': 'foo.jpg',
+                'document': '/documents/1/',
+                'data': '/documents/1/foo.jpg/download/',
+            },
+        ])
+
+        resp = self.app.get('/documents/1/attachments/foo.jpg/')
+        resp_data = json.loads(resp.data)
+        self.assertEqual(resp_data, {
+            'mimetype': 'image/jpeg',
+            'timestamp': '2016-01-02 03:04:05',
+            'data_length': 1,
+            'filename': 'foo.jpg',
+            'document': '/documents/1/',
+            'data': '/documents/1/foo.jpg/download/',
+        })
+
+        resp = self.app.delete('/documents/1/attachments/foo.jpg/')
+        self.assertEqual(Attachment.select().count(), 1)
+
+        resp = self.app.post('/documents/1/attachments/bar.png/', data={
+            'data': '',
+            'file_0': (StringIO('zz'), 'bar.png')})
+        resp_data = json.loads(resp.data)
+        self.assertEqual(resp_data['data_length'], 2)
 
     def search(self, index, query, page=1, **filters):
         filters.setdefault('ranking', Index.RANK_BM25)

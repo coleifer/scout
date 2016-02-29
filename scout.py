@@ -495,10 +495,13 @@ class RequestValidator(object):
         else:
             data = request.form['data']
 
-        try:
-            data = json.loads(data)
-        except ValueError:
-            error('Unable to parse JSON data from request.')
+        if data:
+            try:
+                data = json.loads(data)
+            except ValueError:
+                error('Unable to parse JSON data from request.')
+        else:
+            data = {}
 
         required = set(required_keys or ())
         optional = set(optional_keys or ())
@@ -820,7 +823,7 @@ class DocumentView(_FileProcessingView):
         return jsonify({'success': True})
 
 
-class AttachmentView(ScoutView):
+class AttachmentView(_FileProcessingView):
     def _get_document(self, document_id):
         return get_object_or_404(
             Document.all(),
