@@ -86,6 +86,8 @@ class Scout(object):
                 'Content-Type: %s' % mimetype,
                 '',
                 data))
+        parts.append('--' + boundary + '--')
+        parts.append('')
 
         headers = {'Content-Type': 'multipart/form-data; boundary=%s' %
                    boundary}
