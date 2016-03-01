@@ -567,6 +567,23 @@ def protect_view(fn):
         return fn(*args, **kwargs)
     return inner
 
+def apply_ordering(query, attachment_scope=False):
+    if not request.args.get('ordering'):
+        return query
+
+    field_name = request.args['ordering'].lstrip('-')
+    is_desc = request.args['ordering'].startswith('-')
+    if field_name in Document._meta.fields:
+        field = Document._meta.fields[field_name]
+    elif attachment_scope and field_name in Attachment._meta.fields:
+        field = Attachment._meta.fields[order_field]
+    else:
+        return query
+
+    if is_desc:
+        field = field.desc()
+    return query.order_by(field)
+
 
 class ScoutView(MethodView):
     def __init__(self, *args, **kwargs):
@@ -647,7 +664,7 @@ class IndexView(ScoutView):
         response = index.serialize()
 
         query = index.documents
-        pq = self.paginated_query(query)
+        pq = self.paginated_query(apply_ordering(query))
         response.update(
             documents=Document.serialize_query(pq.get_object_list()),
             page=pq.get_page(),
@@ -745,7 +762,7 @@ class DocumentView(_FileProcessingView):
                 for key, values in filters.items()])
             query = query.where(filter_expr)
 
-        pq = self.paginated_query(query)
+        pq = self.paginated_query(apply_ordering(query))
         return jsonify({
             'documents': Document.serialize_query(pq.get_object_list()),
             'page': pq.get_page(),
@@ -959,7 +976,7 @@ def index_search(index_name, attachments):
                  .naive())
 
         pq = PaginatedQuery(
-            query,
+            apply_ordering(query, attachment_scope=True),
             paginate_by=app.config['PAGINATE_BY'],
             page_var=app.config['PAGE_VAR'],
             check_bounds=False)
@@ -974,7 +991,7 @@ def index_search(index_name, attachments):
             document['data'] = url_for('attachment_download', **data_params)
     else:
         pq = PaginatedQuery(
-            query,
+            apply_ordering(query),
             paginate_by=app.config['PAGINATE_BY'],
             page_var=app.config['PAGE_VAR'],
             check_bounds=False)
