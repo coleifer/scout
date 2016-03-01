@@ -69,7 +69,8 @@ SEARCH_EXTENSION = HAVE_FTS5 and 'FTS5' or (HAVE_FTS4 and 'FTS4' or 'FTS3')
 SECRET_KEY = 'huey is a little angel.'  # Customize this.
 STAR_ALL = False
 STEM = None
-_PROTECTED_KEYS = set(['page', 'q', 'key', 'ranking', 'identifier', 'index'])
+_PROTECTED_KEYS = set(['page', 'q', 'key', 'ranking', 'identifier', 'index',
+                       'ordering'])
 
 app = Flask(__name__)
 app.config.from_object(__name__)
@@ -576,7 +577,7 @@ def apply_ordering(query, attachment_scope=False):
     if field_name in Document._meta.fields:
         field = Document._meta.fields[field_name]
     elif attachment_scope and field_name in Attachment._meta.fields:
-        field = Attachment._meta.fields[order_field]
+        field = Attachment._meta.fields[field_name]
     else:
         return query
 
