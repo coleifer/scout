@@ -899,7 +899,7 @@ def attachment_download(document_id, pk):
     attachment = get_object_or_404(
         document.attachments,
         Attachment.filename == pk)
-    database.close()
+    _close_database(None)
 
     response = make_response(attachment.blob.data)
     response.headers['Content-Type'] = attachment.mimetype
@@ -983,11 +983,12 @@ def _handle_invalid_request(exc):
 
 @app.before_request
 def _connect_database():
-    database.connect()
+    if database.database != ':memory:':
+        database.connect()
 
 @app.teardown_request
 def _close_database(exc):
-    if not database.is_closed():
+    if database.database != ':memory:' and not database.is_closed():
         database.close()
 
 #
