@@ -355,6 +355,8 @@ class Index(BaseModel):
 
         if search != '*':
             query = query.where(Document.match(search))
+        else:
+            ranking = None
 
         if filters:
             filter_expr = reduce(operator.and_, [
@@ -897,6 +899,7 @@ def attachment_download(document_id, pk):
     attachment = get_object_or_404(
         document.attachments,
         Attachment.filename == pk)
+    database.close()
 
     response = make_response(attachment.blob.data)
     response.headers['Content-Type'] = attachment.mimetype
@@ -931,7 +934,7 @@ def index_search(index_name, attachments):
     if attachments:
         query = (query
                  .select(
-                     Document._meta.primary_key,
+                     Document._meta.primary_key.alias('id'),
                      Document.identifier,
                      Attachment.filename,
                      Attachment.mimetype,
@@ -951,10 +954,9 @@ def index_search(index_name, attachments):
             check_bounds=False)
 
         documents = list(pq.get_object_list())
-        pk = Document._meta.primary_key.name
         for document in documents:
             data_params = {
-                'document_id': document[pk],
+                'document_id': document['id'],
                 'pk': document['filename']}
             if app.config['AUTHENTICATION']:
                 data_params['key'] = app.config['AUTHENTICATION']
@@ -978,6 +980,15 @@ def index_search(index_name, attachments):
 @app.errorhandler(InvalidRequestException)
 def _handle_invalid_request(exc):
     return exc.response()
+
+@app.before_request
+def _connect_database():
+    database.connect()
+
+@app.teardown_request
+def _close_database(exc):
+    if not database.is_closed():
+        database.close()
 
 #
 # Initialization, main().
