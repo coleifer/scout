@@ -960,7 +960,7 @@ def index_search(index_name, attachments):
 
         pq = PaginatedQuery(
             query,
-            paginate_by=200,
+            paginate_by=app.config['PAGINATE_BY'],
             page_var=app.config['PAGE_VAR'],
             check_bounds=False)
 
