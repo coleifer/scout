@@ -69,7 +69,7 @@ SEARCH_EXTENSION = HAVE_FTS5 and 'FTS5' or (HAVE_FTS4 and 'FTS4' or 'FTS3')
 SECRET_KEY = 'huey is a little angel.'  # Customize this.
 STAR_ALL = False
 STEM = None
-_PROTECTED_KEYS = set(['page', 'q', 'key', 'ranking'])
+_PROTECTED_KEYS = set(['page', 'q', 'key', 'ranking', 'identifier', 'index'])
 
 app = Flask(__name__)
 app.config.from_object(__name__)
@@ -370,7 +370,8 @@ class Index(BaseModel):
 
         return query
 
-    def _build_filter_expression(self, key, values):
+    @staticmethod
+    def _build_filter_expression(key, values):
         def in_(lhs, rhs):
             return lhs << ([i.strip() for i in rhs.split(',')])
         operations = {
@@ -734,6 +735,16 @@ class DocumentView(_FileProcessingView):
             query = query.where(
                 Document.identifier == request.args['identifier'])
 
+        # Allow filtering by arbitrary metadata.
+        filters = dict(
+            (key, request.args.getlist(key)) for key in request.args
+            if key not in _PROTECTED_KEYS)
+        if filters:
+            filter_expr = reduce(operator.and_, [
+                Index._build_filter_expression(key, values)
+                for key, values in filters.items()])
+            query = query.where(filter_expr)
+
         pq = self.paginated_query(query)
         return jsonify({
             'documents': Document.serialize_query(pq.get_object_list()),
@@ -1080,8 +1091,7 @@ def get_option_parser():
         help='Search query "*" returns all records')
     return parser
 
-
-if __name__ == '__main__':
+def parse_options():
     option_parser = get_option_parser()
     options, args = option_parser.parse_args()
 
@@ -1132,4 +1142,7 @@ if __name__ == '__main__':
     if options.search_version:
         app.config['SEARCH_EXTENSION'] = 'FTS%s' % options.search_version
 
+
+if __name__ == '__main__':
+    parse_options()
     main()

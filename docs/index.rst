@@ -14,6 +14,7 @@ Features:
 * Simple key-based authentication (optional).
 * Lightweight, low resource utilization, minimal setup required.
 * Store search content and arbitrary metadata.
+* Attach files or BLOBs to indexed documents.
 * Multiple result ranking algorithms, porter stemmer.
 * Besides full-text search, perform complex filtering based on metadata values.
 * Comprehensive unit-tests.

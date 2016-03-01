@@ -29,7 +29,7 @@ using git:
 Dependencies
 ------------
 
-Scout has two Python dependencies:
+Scout has the following Python dependencies:
 
 * `Flask <http://flask.pocoo.org>`_
 * `Peewee <http://docs.peewee-orm.com>`_
@@ -37,6 +37,8 @@ Scout has two Python dependencies:
 If you installed Scout using ``pip`` then the dependencies will have automatically been installed for you. Otherwise be sure to install ``flask`` and ``peewee``.
 
 Scout also depends on SQLite and the SQLite full-text search extension. SQLite is installed by default on most operating systems, and is generally compiled with FTS, so typically no additional installation is necessary.
+
+If you wish, you can also run Scout using the `gevent <http://www.gevent.org/>`_ WSGI server. This process is described in the :ref:`hacks` document.
 
 Running tests
 -------------

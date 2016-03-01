@@ -21,31 +21,39 @@ Scout comes with a simple Python client. This document describes the client API.
 
     .. py:method:: get_indexes()
 
-        Return the list of indexes available on the server. For each index, the name, id and number of documents is resturned.
+        Return the list of indexes available on the server.
+
+        Data returned:
+
+        * document_count
+        * documents link (URI for list of indexed documents)
+        * id
+        * name
 
         Example:
 
         .. code-block:: pycon
 
             >>> scout.get_indexes()
-            [{u'documents': 132, u'id': 3, u'name': u'blog-entries'},
-             {u'documents': 18, u'id': 2, u'name': u'test-index'},
-             {u'documents': 830, u'id': 1, u'name': u'vault'}]
+            [{'document_count': 132, 'documents': '/3/', 'id': 3, 'name': 'blog-entries'},
+             {'document_count': 18, 'documents': '/3/', 'id': 2, 'name': 'test-index'},
+             {'document_count': 830, 'documents': '/3/', 'id': 1, 'name': 'vault'}]
 
     .. py:method:: create_index(name)
 
-        Create a new index with the given name.
+        Create a new index with the given name. If an index with that name already exists, you will receive a 400 response.
 
         Example:
 
         .. code-block:: pycon
 
             >>> scout.create_index('new-index')
-            {u'documents': [],
-             u'id': 5,
-             u'name': u'new-index',
-             u'page': 1,
-             u'pages': 0}
+            {'document_count': 0,
+             'documents': [],
+             'id': 5,
+             'name': 'new-index',
+             'page': 1,
+             'pages': 0}
 
     .. py:method:: rename_index(old_name, new_name)
 
@@ -56,11 +64,12 @@ Scout comes with a simple Python client. This document describes the client API.
         .. code-block:: pycon
 
             >>> scout.rename_index('new-index', 'renamed-index')
-            {u'documents': [],
-             u'id': 5,
-             u'name': u'renamed-index',
-             u'page': 1,
-             u'pages': 0}
+            {'document_count': 0,
+             'documents': [],
+             'id': 5,
+             'name': 'renamed-index',
+             'page': 1,
+             'pages': 0}
 
     .. py:method:: delete_index(name)
 
@@ -71,13 +80,11 @@ Scout comes with a simple Python client. This document describes the client API.
         .. code-block:: pycon
 
             >>> scout.delete_index('renamed-index')
-            {u'success': True}
+            {'success': True}
 
-    .. py:method:: get_documents(**kwargs)
+    .. py:method:: get_index([page=None])
 
-        Return a paginated list of all documents stored in the database. Note in the documents below that they come from multiple different indexes. Additionally, the document `id`, `content` and `metadata` is serialized.
-
-        If you wish to only retrieve documents from a particular index, you can pass the name of the index by specifying ``index='name-of-index'``.
+        Return the details about the particular index, along with a paginated list of all documents stored in the given index.
 
         By default the results are paginated 50 documents-per-page. To retrieve a particular page of results, specify ``page=X``.
 
@@ -85,57 +92,57 @@ Scout comes with a simple Python client. This document describes the client API.
 
         .. code-block:: pycon
 
-            >>> scout.get_documents()
+            >>> scout.get_index('vault')
 
-            {u'documents': [
-                {u'content': u'The Rendlesham forest incident is one of the most interesting UFO accounts.',
-                 u'id': 1,
-                 u'identifier': None,
-                 u'indexes': [u'vault'],
-                 u'metadata': {u'type': u'ufo'}},
-                {u'content': u'Huey is not very interested in UFOs.',
-                 u'id': 2,
-                 u'identifier': None,
-                 u'indexes': [u'vault'],
-                 u'metadata': {u'type': u'huey'}},
-                {u'content': u'Sometimes I wonder if huey is an alien.',
-                 u'id': 3,
-                 u'identifier': None,
-                 u'indexes': [u'vault'],
-                 u'metadata': {u'type': u'huey'}},
-                {u'content': u"The Chicago O'Hare UFO incident is also intriguing.",
-                 u'id': 4,
-                 u'identifier': None,
-                 u'indexes': [u'vault'],
-                 u'metadata': {u'type': u'ufo'}},
-                {u'content': u'Testing the test index',
-                 u'id': 5,
-                 u'identifier': None,
-                 u'indexes': [u'test-index'],
-                 u'metadata': {}}
+            {'document_count': 58,
+             'documents': [
+                {'attachments': '/documents/1/attachments/',
+                 'content': 'The Rendlesham forest incident is one of the most interesting UFO accounts.',
+                 'id': 1,
+                 'identifier': None,
+                 'indexes': ['vault'],
+                 'metadata': {'type': 'ufo'}},
+                {'attachments': '/documents/2/attachments/',
+                 'content': 'Huey is not very interested in UFOs.',
+                 'id': 2,
+                 'identifier': None,
+                 'indexes': ['vault'],
+                 'metadata': {'type': 'huey'}},
+                {'attachments': '/documents/3/attachments/',
+                 'content': 'Sometimes I wonder if huey is an alien.',
+                 'id': 3,
+                 'identifier': None,
+                 'indexes': ['vault'],
+                 'metadata': {'type': 'huey'}},
+                ... snip ...
              ],
-             u'page': 1,
-             u'pages': 1}
+             'id': 1,
+             'name': 'vault',
+             'page': 1,
+             'pages': 2}
 
-    .. py:method:: store_document(content, indexes[, identifier=None[, **metadata]])
+    .. py:method:: create_document(content, indexes[, identifier=None[, attachments=None[, **metadata]]])
 
         Store a document in the specified index(es).
 
         :param str content: Text content to expose for search.
         :param indexes: Either the name of an index or a list of index names.
         :param identifier: Optional alternative user-defined identifier for document.
+        :param attachments: An optional mapping of filename to file-like object, which should be uploaded and stored as attachments on the given document.
         :param metadata: Arbitrary key/value pairs to store alongside the document content.
 
         .. code-block:: pycon
 
-            >>> scout.store_document('another test', 'test-index', foo='bar')
+            >>> scout.create_document('another test', 'test-index', foo='bar')
 
-            {u'content': u'another test',
-             u'id': 7,
-             u'indexes': [u'test-index'],
-             u'metadata': {u'foo': u'bar'}}
+            {'attachments': '/documents/7/attachments',
+             'content': 'another test',
+             'id': 7,
+             'identifier': None,
+             'indexes': ['test-index'],
+             'metadata': {'foo': 'bar'}}
 
-    .. py:method:: update_document([document_id=None[, content=None[, indexes=None[, metadata=None[, identifier=None]]]]])
+    .. py:method:: update_document([document_id=None[, content=None[, indexes=None[, metadata=None[, identifier=None[, attachments=None]]]]]])
 
         Update one or more attributes of a document that's stored in the database.
 
@@ -144,10 +151,9 @@ Scout comes with a simple Python client. This document describes the client API.
         :param indexes: Either the name of an index or a list of index names (optional).
         :param metadata: Arbitrary key/value pairs to store alongside the document content (optional).
         :param identifier: Optional alternative user-defined identifier for document.
+        :param attachments: An optional mapping of filename to file-like object, which should be uploaded and stored as attachments on the given document. If a filename already exists, it will be over-written with the new attachment.
 
         .. note:: If you specify metadata when updating a document, existing metadata will be replaced by the new metadata. To simply clear out the metadata for an existing document, pass an empty ``dict``.
-
-        .. note:: Either `document_id` or `identifier` must be provided.
 
         Example:
 
@@ -155,26 +161,50 @@ Scout comes with a simple Python client. This document describes the client API.
 
             >>> scout.update_document(document_id=7, content='updated content')
 
-            {u'content': u'updated content',
-             u'id': 7,
-             u'indexes': [u'test-index'],
-             u'metadata': {u'foo': u'bar'}}
+            {'attachments': '/documents/7/attachments',
+             'content': 'updated content',
+             'id': 7,
+             'identifier': None,
+             'indexes': ['test-index'],
+             'metadata': {'foo': 'bar'}}
 
-    .. py:method:: delete_document([document_id=None[, identifier=None]])
+    .. py:method:: delete_document(document_id)
 
         Remove a document from the database, as well as all indexes.
 
         :param int document_id: The integer document ID.
-        :param identifier: Optional alternative user-defined identifier for document.
-
-        .. note:: Either `document_id` or `identifier` must be provided.
 
         Example:
 
         .. code-block:: pycon
 
             >>> scout.delete_document(7)
-            {u'success': True}
+            {'success': True}
+
+    .. py:method:: get_document(document_id)
+
+        Retrieve content for the given document.
+
+        :param int document_id: The integer document ID.
+
+        Example:
+
+        .. code-block:: pycon
+
+            >>> scout.get_document(7)
+
+            {'attachments': '/documents/7/attachments',
+             'content': 'updated content',
+             'id': 7,
+             'identifier': None,
+             'indexes': ['test-index'],
+             'metadata': {'foo': 'bar'}}
+
+    .. py:method:: get_documents(**kwargs)
+
+        Retrieve a paginated list of all documents in the database, regardless of index.
+
+        :param kwargs: Arbitrary keyword arguments passed to the API.
 
     .. py:method:: search(index, query, **kwargs)
 
@@ -196,16 +226,16 @@ Scout comes with a simple Python client. This document describes the client API.
 
             >>> results = scout.search('vault', 'interesting', ranking='bm25')
             >>> print results['documents']
-            [{u'content': u'Huey is not very interested in UFOs.',
-              u'id': 2,
-              u'indexes': [u'vault'],
-              u'metadata': {u'type': u'huey'},
-              u'score': 0.6194637905555267},
-             {u'content': u'The Rendlesham forest incident is one of the most interesting UFO accounts.',
-              u'id': 1,
-              u'indexes': [u'vault'],
-              u'metadata': {u'type': u'ufo'},
-              u'score': 0.48797383501308006}]
+            [{'content': 'Huey is not very interested in UFOs.',
+              'id': 2,
+              'indexes': ['vault'],
+              'metadata': {'type': 'huey'},
+              'score': 0.6194637905555267},
+             {'content': 'The Rendlesham forest incident is one of the most interesting UFO accounts.',
+              'id': 1,
+              'indexes': ['vault'],
+              'metadata': {'type': 'ufo'},
+              'score': 0.48797383501308006}]
 
         The same search with a filter on ``type``:
 
@@ -213,11 +243,11 @@ Scout comes with a simple Python client. This document describes the client API.
 
             >>> results = scout.search('vault', 'interesting', type='huey')
             >>> print results['documents']
-            [{u'content': u'Huey is not very interested in UFOs.',
-              u'id': 2,
-              u'indexes': [u'vault'],
-              u'metadata': {u'type': u'huey'},
-              u'score': 0.5}]
+            [{'content': 'Huey is not very interested in UFOs.',
+              'id': 2,
+              'indexes': ['vault'],
+              'metadata': {'type': 'huey'},
+              'score': 0.5}]
 
         To use a filter with multiple values, you can pass in a list. The resulting filter will use ``OR`` logic to combine the expressions. The resulting query searches for the word "interesting" and then filters the results such that the metadata type contains either the substring 'huey' or 'ufo':
 
@@ -225,13 +255,13 @@ Scout comes with a simple Python client. This document describes the client API.
 
             >>> results = scout.search('vault', 'interesting', type__contains=['huey', 'ufo'])
             >>> print results['documents']
-            [{u'content': u'Huey is not very interested in UFOs.',
-              u'id': 2,
-              u'indexes': [u'vault'],
-              u'metadata': {u'type': u'huey'},
-              u'score': 0.6194637905555267},
-             {u'content': u'The Rendlesham forest incident is one of the most interesting UFO accounts.',
-              u'id': 1,
-              u'indexes': [u'vault'],
-              u'metadata': {u'type': u'ufo'},
-              u'score': 0.48797383501308006}]
+            [{'content': 'Huey is not very interested in UFOs.',
+              'id': 2,
+              'indexes': ['vault'],
+              'metadata': {'type': 'huey'},
+              'score': 0.6194637905555267},
+             {'content': 'The Rendlesham forest incident is one of the most interesting UFO accounts.',
+              'id': 1,
+              'indexes': ['vault'],
+              'metadata': {'type': 'ufo'},
+              'score': 0.48797383501308006}]
