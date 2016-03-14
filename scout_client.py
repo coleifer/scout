@@ -64,7 +64,7 @@ class Scout(object):
             try:
                 data = file_obj.read()
             except AttributeError:
-                data = bytes(data)
+                data = bytes(file_obj)
             mimetype = mimetypes.guess_type(filename)[0]
             form_files.append((
                 'file_%s' % i,
@@ -109,8 +109,8 @@ class Scout(object):
         fh = urllib2.urlopen(request)
         return json.loads(fh.read())
 
-    def get_indexes(self):
-        return self.get('/')['indexes']
+    def get_indexes(self, **kwargs):
+        return self.get('/', **kwargs)['indexes']
 
     def create_index(self, name):
         return self.post('/', {'name': name})
@@ -194,10 +194,5 @@ class Scout(object):
         return self.get_raw('/documents/%s/attachments/%s/download/' %
                             (document_id, filename))
 
-    def search(self, index, query, **kwargs):
-        kwargs['q'] = query
-        return self.get('/%s/search/' % index, **kwargs)
-
-    def search_attachments(self, index, query, **kwargs):
-        kwargs['q'] = query
-        return self.get('/%s/search/attachments/' % index, **kwargs)
+    def search_attachments(self, **kwargs):
+        return self.get('/documents/attachments/', **kwargs)

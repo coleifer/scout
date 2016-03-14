@@ -33,6 +33,7 @@ import zlib
 from flask import abort, Flask, jsonify, make_response, request, Response, url_for
 from flask.views import MethodView
 from peewee import *
+from peewee import SelectQuery
 from peewee import __version__ as peewee_version_raw
 from playhouse.fields import CompressedField
 from playhouse.flask_utils import get_object_or_404
@@ -81,9 +82,9 @@ database = SqliteExtDatabase(None, c_extensions=app.config['C_EXTENSIONS'])
 if app.config.get('DATABASE'):
     database.init(app.config['DATABASE'])
 
-#
-# Database models.
-#
+RANK_SIMPLE = 'simple'
+RANK_BM25 = 'bm25'
+RANK_NONE = 'none'
 
 SEARCH_EXTENSION = app.config['SEARCH_EXTENSION']
 
@@ -130,6 +131,118 @@ class Document(FTSBaseModel):
             Document._meta.primary_key,
             Document.content,
             Document.identifier)
+
+    @classmethod
+    def search(cls, phrase, index=None, ranking='bm25', ordering=None,
+               force_star_all=False, **filters):
+        phrase = phrase.strip()
+        star_all = app.config['STAR_ALL'] or force_star_all
+        if not phrase or (phrase == '*' and not star_all):
+            raise InvalidSearchException('Must provide a search query.')
+        elif phrase == '*' or ranking == RANK_NONE:
+            ranking = None
+
+        query = cls.all()
+        if phrase != '*':
+            query = query.where(Document.match(phrase))
+
+        # Allow filtering by index(es).
+        if index is not None:
+            query = query.join(IndexDocument)
+            if isinstance(index, (list, tuple, SelectQuery)):
+                query = query.where(IndexDocument.index << index)
+            else:
+                query = query.where(IndexDocument.index == index)
+
+        # Allow filtering by metadata.
+        metadata_expr = Document.get_metadata_filter_expression(filters)
+        if metadata_expr is not None:
+            query = query.where(metadata_expr)
+
+        # Allow sorting and ranking.
+        return Document.apply_rank_and_sort(query, ranking, ordering or ())
+
+    @staticmethod
+    def get_metadata_filter_expression(filters):
+        valid_keys = [key for key in filters if key not in _PROTECTED_KEYS]
+        if valid_keys:
+            return reduce(operator.and_, [
+                Document._build_filter_expression(key, values)
+                for key, values in filters.items()])
+
+    @staticmethod
+    def _build_filter_expression(key, values):
+        def in_(lhs, rhs):
+            return lhs << ([i.strip() for i in rhs.split(',')])
+        operations = {
+            'eq': operator.eq,
+            'ne': operator.ne,
+            'ge': operator.ge,
+            'gt': operator.gt,
+            'le': operator.le,
+            'lt': operator.lt,
+            'in': in_,
+            'contains': lambda l, r: operator.pow(l, '%%%s%%' % r),
+            'startswith': lambda l, r: operator.pow(l, '%s%%' % r),
+            'endswith': lambda l, r: operator.pow(l, '%%%s' % r),
+            'regex': lambda l, r: l.regexp(r),
+        }
+        if key.find('__') != -1:
+            key, op = key.rsplit('__', 1)
+            if op not in operations:
+                error(
+                    'Unrecognized operation: %s. Supported operations are:'
+                    '\n%s' % (op, '\n'.join(sorted(operations.keys()))))
+        else:
+            op = 'eq'
+
+        op = operations[op]
+        if isinstance(values, (list, tuple)):
+            expr = reduce(operator.or_, [
+                ((Metadata.key == key) & op(Metadata.value, value))
+                for value in values])
+        else:
+            expr = ((Metadata.key == key) & op(Metadata.value, values))
+
+        return fn.EXISTS(Metadata.select().where(
+            expr &
+            (Metadata.document == Document._meta.primary_key)))
+
+    @classmethod
+    def apply_rank_and_sort(cls, query, ranking, ordering):
+        sort_options = {
+            'content': cls.content,
+            'id': cls._meta.primary_key,
+            'identifier': cls.identifier,
+        }
+        if ranking is not None:
+            rank = Document.get_rank_expression(ranking)
+            sort_options['score'] = rank
+            sort_default = 'score'
+
+            # Add score to the selected columns.
+            query = query.select(*query._select + [rank.alias('score')])
+        else:
+            sort_default = 'id'
+
+        return apply_sorting(query, ordering, sort_options, sort_default)
+
+    @staticmethod
+    def get_rank_expression(ranking):
+        if ranking == RANK_BM25:
+            if SEARCH_EXTENSION != 'FTS3':
+                # Search only the content field, do not search the identifiers.
+                rank_expr = Document.bm25(1.0, 0.0)
+            else:
+                # BM25 is not available, use the simple rank method.
+                rank_expr = Document.rank(1.0, 0.0)
+        elif ranking == RANK_SIMPLE:
+            # Search only the content field, do not search the identifiers.
+            rank_expr = Document.rank(1.0, 0.0)
+        else:
+            rank_expr = None
+
+        return rank_expr
 
     def get_metadata(self):
         return dict(Metadata
@@ -264,11 +377,54 @@ class Attachment(BaseModel):
     def length(self):
         return len(self.blob.data)
 
-    def serialize(self):
+    @classmethod
+    def search(cls, phrase, index=None, ranking='bm25', ordering=None,
+               **filters):
+        query = Document.search(phrase, index, ranking, ordering, **filters)
+
+        # Transform query to apply to Attachments instead.
+        query = (query
+                 .select(
+                     Document._meta.primary_key.alias('id'),
+                     Document.identifier,
+                     Attachment.hash,
+                     Attachment.filename,
+                     Attachment.mimetype,
+                     Attachment.timestamp)
+                 .switch(Document)
+                 .join(
+                     Attachment,
+                     on=(Document._meta.primary_key == Attachment.document)))
+
+        return Attachment.apply_rank_and_sort(query, ranking, ordering or ())
+
+    @classmethod
+    def apply_rank_and_sort(cls, query, ranking, ordering):
+        sort_options = {
+            'document': Attachment.document,
+            'hash': Attachment.hash,
+            'filename': Attachment.filename,
+            'mimetype': Attachment.mimetype,
+            'timestamp': Attachment.timestamp,
+            'id': Attachment.id}
+
+        if ranking is not None:
+            rank = Document.get_rank_expression(ranking)
+            sort_options['score'] = rank
+            sort_default = 'score'
+
+            # Add score to the selected columns.
+            query = query.select(*query._select + [rank.alias('score')])
+        else:
+            sort_default = 'filename'
+
+        return apply_sorting(query, ordering, sort_options, sort_default)
+
+    def serialize(self, include_score=False):
         data_params = {'document_id': self.document_id, 'pk': self.filename}
         if app.config['AUTHENTICATION']:
             data_params['key'] = app.config['AUTHENTICATION']
-        return {
+        data = {
             'filename': self.filename,
             'mimetype': self.mimetype,
             'timestamp': str(self.timestamp),
@@ -278,6 +434,9 @@ class Attachment(BaseModel):
                 pk=self.document_id),
             'data': url_for('attachment_download', **data_params),
         }
+        if include_score:
+            data['score'] = self.score
+        return data
 
 
 class BlobData(BaseModel):
@@ -309,105 +468,14 @@ class Index(BaseModel):
     Indexes contain any number of documents and expose a clean API for
     searching and storing content.
     """
-    RANK_SIMPLE = 'simple'
-    RANK_BM25 = 'bm25'
-    RANK_NONE = None
-
     name = CharField(unique=True)
 
     class Meta:
         db_table = 'main_index'
 
-    def get_rank_expr(self, ranking, search_all):
-        if search_all:
-            rank_expr = SQL('0').alias('score')
-        elif ranking == Index.RANK_BM25:
-            if SEARCH_EXTENSION != 'FTS3':
-                # Search only the content field, do not search the identifiers.
-                rank_expr = Document.bm25(1.0, 0.0)
-            else:
-                # BM25 is not available, use the simple rank method.
-                rank_expr = Document.rank(1.0, 0.0)
-        elif ranking == Index.RANK_SIMPLE:
-            # Search only the content field, do not search the identifiers.
-            rank_expr = Document.rank(1.0, 0.0)
-
-        return rank_expr
-
-    def search(self, search, ranking=RANK_BM25, explicit_ordering=False,
-               **filters):
-        search = search.strip()
-        if not search or (search == '*' and not app.config['STAR_ALL']):
-            return Document.select().where(Document._meta.primary_key == 0)
-
-        selection = [
-            Document._meta.primary_key,
-            Document.content,
-            Document.identifier]
-
-        rank_expr = self.get_rank_expr(ranking, search == '*')
-        if ranking:
-            selection.append(rank_expr.alias('score'))
-
-        query = (Document
-                 .select(*selection)
-                 .join(IndexDocument)
-                 .where(IndexDocument.index == self))
-
-        if search != '*':
-            query = query.where(Document.match(search))
-        else:
-            ranking = None
-
-        if filters:
-            filter_expr = reduce(operator.and_, [
-                self._build_filter_expression(key, values)
-                for key, values in filters.items()])
-            query = query.where(filter_expr)
-
-        if ranking:
-            order_by = rank_expr if explicit_ordering else SQL('score')
-            query = query.order_by(order_by)
-
-        return query
-
-    @staticmethod
-    def _build_filter_expression(key, values):
-        def in_(lhs, rhs):
-            return lhs << ([i.strip() for i in rhs.split(',')])
-        operations = {
-            'eq': operator.eq,
-            'ne': operator.ne,
-            'ge': operator.ge,
-            'gt': operator.gt,
-            'le': operator.le,
-            'lt': operator.lt,
-            'in': in_,
-            'contains': lambda l, r: operator.pow(l, '%%%s%%' % r),
-            'startswith': lambda l, r: operator.pow(l, '%s%%' % r),
-            'endswith': lambda l, r: operator.pow(l, '%%%s' % r),
-            'regex': lambda l, r: l.regexp(r),
-        }
-        if key.find('__') != -1:
-            key, op = key.rsplit('__', 1)
-            if op not in operations:
-                error(
-                    'Unrecognized operation: %s. Supported operations are:'
-                    '\n%s' % (op, '\n'.join(sorted(operations.keys()))))
-        else:
-            op = 'eq'
-
-        op = operations[op]
-        if isinstance(values, (list, tuple)):
-            expr = reduce(operator.or_, [
-                ((Metadata.key == key) & op(Metadata.value, value))
-                for value in values])
-        else:
-            expr = ((Metadata.key == key) & op(Metadata.value, values))
-
-        return fn.EXISTS(Metadata.select().where(
-            expr &
-            (Metadata.document == Document._meta.primary_key)))
+    def search(self, phrase, ranking=RANK_BM25, ordering=None, **filters):
+        return Document.search(phrase, index=self, ranking=ranking,
+                               ordering=ordering, **filters)
 
     def add_to_index(self, document):
         with database.atomic():
@@ -443,15 +511,15 @@ class Index(BaseModel):
                 .where(IndexDocument.index == self))
 
     def serialize(self):
-        if hasattr(self, 'doc_count'):
-            doc_count = self.doc_count
+        if hasattr(self, 'document_count'):
+            document_count = self.document_count
         else:
-            doc_count = self.documents.count()
+            document_count = self.documents.count()
         return {
             'id': self.id,
             'name': self.name,
-            'documents': url_for('index_view_detail', pk=self.id),
-            'document_count': doc_count,
+            'documents': url_for('index_view_detail', pk=self.name),
+            'document_count': document_count,
         }
 
 
@@ -478,12 +546,51 @@ class InvalidRequestException(Exception):
         return jsonify({'error': self.error_message}), self.code
 
 
+class InvalidSearchException(ValueError):
+    pass
+
+
+def apply_sorting(query, ordering, mapping, default):
+    sortables = [part.strip() for part in ordering]
+    accum = []
+    for identifier in sortables:
+        is_desc = identifier.startswith('-')
+        identifier = identifier.lstrip('-')
+        if identifier in mapping:
+            value = mapping[identifier]
+            accum.append(value.desc() if is_desc else value)
+
+    if not accum:
+        accum = [mapping[default]]
+
+    return query.order_by(*accum)
+
+
 def error(message, code=None):
     """
     Trigger an Exception from a view that will short-circuit the Response
     cycle and return a 400 "Bad request" with the given error message.
     """
     raise InvalidRequestException(message, code=code)
+
+
+def validate_ranking():
+    ranking = request.args.get('ranking', RANK_BM25) or None
+    if ranking not in (RANK_SIMPLE, RANK_BM25, RANK_NONE, ''):
+        types = ', '.join('"%s"' % ranking
+                          for ranking in (RANK_BM25, RANK_SIMPLE, RANK_NONE))
+        error('Unrecognized "ranking" value. Valid options are: %s' % types)
+    elif ranking:
+        rank_expr = Document.get_rank_expression(ranking)
+    else:
+        rank_expr = None
+    return (ranking, rank_expr)
+
+
+def extract_metadata_filters():
+    return dict(
+        (key, request.args.getlist(key)) for key in request.args
+        if key not in _PROTECTED_KEYS)
 
 
 class RequestValidator(object):
@@ -560,6 +667,7 @@ def authenticate_request():
             return False
     return True
 
+
 def protect_view(fn):
     @wraps(fn)
     def inner(*args, **kwargs):
@@ -567,23 +675,6 @@ def protect_view(fn):
             return 'Invalid API key', 401
         return fn(*args, **kwargs)
     return inner
-
-def apply_ordering(query, attachment_scope=False):
-    if not request.args.get('ordering'):
-        return query
-
-    field_name = request.args['ordering'].lstrip('-')
-    is_desc = request.args['ordering'].startswith('-')
-    if field_name in Document._meta.fields:
-        field = Document._meta.fields[field_name]
-    elif attachment_scope and field_name in Attachment._meta.fields:
-        field = Attachment._meta.fields[field_name]
-    else:
-        return query
-
-    if is_desc:
-        field = field.desc()
-    return query.order_by(field)
 
 
 class ScoutView(MethodView):
@@ -655,6 +746,37 @@ class ScoutView(MethodView):
     def delete(self):
         raise NotImplementedError
 
+    def _search_response(self, index, allow_blank, document_count):
+        ranking, _ = validate_ranking()
+        ordering = request.args.getlist('ordering')
+        filters = extract_metadata_filters()
+
+        q = request.args.get('q', '').strip()
+        if not q and not allow_blank:
+            error('Search term is required.')
+
+        query = Document.search(q or '*', index, ranking, ordering,
+                                force_star_all=True if not q else False,
+                                **filters)
+        pq = self.paginated_query(query)
+
+        response = {
+            'document_count': document_count,
+            'documents': Document.serialize_query(
+                pq.get_object_list(),
+                include_score=True if q else False),
+            'filtered_count': query.count(),
+            'filters': filters,
+            'ordering': ordering,
+            'page': pq.get_page(),
+            'pages': pq.get_page_count(),
+        }
+        if q:
+            response.update(
+                ranking=ranking,
+                search_term=q)
+        return response
+
 #
 # Views.
 #
@@ -662,23 +784,25 @@ class ScoutView(MethodView):
 class IndexView(ScoutView):
     def detail(self, pk):
         index = get_object_or_404(Index, Index.name == pk)
-        response = index.serialize()
-
-        query = index.documents
-        pq = self.paginated_query(apply_ordering(query))
-        response.update(
-            documents=Document.serialize_query(pq.get_object_list()),
-            page=pq.get_page(),
-            pages=pq.get_page_count())
-
+        document_count = index.documents.count()
+        response = {'name': index.name, 'id': index.id}
+        response.update(self._search_response(index, True, document_count))
         return jsonify(response)
 
     def list_view(self):
         query = (Index
-                 .select(Index, fn.COUNT(IndexDocument.id).alias('doc_count'))
+                 .select(
+                     Index,
+                     fn.COUNT(IndexDocument.id).alias('document_count'))
                  .join(IndexDocument, JOIN_LEFT_OUTER)
-                 .group_by(Index)
-                 .order_by(Index.name))
+                 .group_by(Index))
+
+        ordering = request.args.getlist('ordering')
+        query = apply_sorting(query, ordering, {
+            'name': Index.name,
+            'document_count': SQL('document_count'),
+            'id': Index.id}, 'name')
+
         pq = self.paginated_query(query)
         return jsonify({
             'indexes': [index.serialize() for index in pq.get_object_list()],
@@ -724,9 +848,12 @@ class IndexView(ScoutView):
 
 class _FileProcessingView(ScoutView):
     def attach_files(self, document):
+        attachments = []
         for identifier in request.files:
             file_obj = request.files[identifier]
-            document.attach(file_obj.filename, file_obj.read())
+            attachments.append(
+                document.attach(file_obj.filename, file_obj.read()))
+        return attachments
 
 
 class DocumentView(_FileProcessingView):
@@ -740,34 +867,15 @@ class DocumentView(_FileProcessingView):
         return jsonify(document.serialize())
 
     def list_view(self):
-        query = Document.all()
-
         # Allow filtering by index.
-        if request.args.get('index'):
-            query = (query
-                     .join(IndexDocument, JOIN_LEFT_OUTER)
-                     .join(Index)
-                     .where(Index.name == request.args['index']))
+        idx_list = request.args.getlist('index')
+        if idx_list:
+            indexes = Index.select(Index.id).where(Index.name << idx_list)
+        else:
+            indexes = None
 
-        if request.args.get('identifier'):
-            query = query.where(
-                Document.identifier == request.args['identifier'])
-
-        # Allow filtering by arbitrary metadata.
-        filters = dict(
-            (key, request.args.getlist(key)) for key in request.args
-            if key not in _PROTECTED_KEYS)
-        if filters:
-            filter_expr = reduce(operator.and_, [
-                Index._build_filter_expression(key, values)
-                for key, values in filters.items()])
-            query = query.where(filter_expr)
-
-        pq = self.paginated_query(apply_ordering(query))
-        return jsonify({
-            'documents': Document.serialize_query(pq.get_object_list()),
-            'page': pq.get_page(),
-            'pages': pq.get_page_count()})
+        document_count = Document.select().count()
+        return jsonify(self._search_response(indexes, True, document_count))
 
     def create(self):
         data = self.validator.parse_post(
@@ -872,7 +980,17 @@ class AttachmentView(_FileProcessingView):
 
     def list_view(self, document_id):
         document = self._get_document(document_id)
-        query = document.attachments.order_by(Attachment.filename)
+        query = document.attachments
+
+        ordering = request.args.getlist('ordering')
+        query = apply_sorting(query, ordering, {
+            'document': Attachment.document,
+            'hash': Attachment.hash,
+            'filename': Attachment.filename,
+            'mimetype': Attachment.mimetype,
+            'timestamp': Attachment.timestamp,
+            'id': Attachment.id}, 'filename')
+
         pq = self.paginated_query(query)
         return jsonify({
             'attachments': [a.serialize() for a in pq.get_object_list()],
@@ -884,12 +1002,12 @@ class AttachmentView(_FileProcessingView):
         self.validator.parse_post([], [])  # Ensure POST data is clean.
 
         if len(request.files):
-            self.attach_files(document)
+            attachments = self.attach_files(document)
         else:
             error('No file attachments found.')
 
-        attachment = document.attach(post['filename'], decoded)
-        return jsonify(attachment.serialize())
+        return jsonify({'attachments': [
+            attachment.serialize() for attachment in attachments]})
 
     def update(self, document_id, pk):
         document = self._get_document(document_id)
@@ -939,71 +1057,56 @@ def attachment_download(document_id, pk):
     return response
 
 
-@app.route('/<index_name>/search/', defaults={'attachments': False})
-@app.route('/<index_name>/search/attachments/', defaults={'attachments': True})
+@app.route('/documents/attachments/')
 @protect_view
-def index_search(index_name, attachments):
+def attachment_search():
     """
-    Search the index for documents matching the given query.
+    Search the index for attachments matching the given query.
     """
-    if not request.args.get('q'):
-        error('Missing required search parameter "q".')
+    phrase = request.args.get('q', '') or None
+    ranking, _ = validate_ranking()
+    ordering = request.args.getlist('ordering')
+    filters = extract_metadata_filters()
 
-    search_query = request.args['q']
-    ranking = request.args.get('ranking', Index.RANK_BM25)
-    if ranking and ranking not in (Index.RANK_SIMPLE, Index.RANK_BM25):
-        error('Unrecognized "ranking" type.')
-
-    filters = dict(
-        (key, request.args.getlist(key)) for key in request.args
-        if key not in _PROTECTED_KEYS)
-
-    index = get_object_or_404(Index, Index.name == index_name)
-    query = index.search(search_query, ranking, True, **filters)
-    if attachments:
-        query = (query
-                 .select(
-                     Document._meta.primary_key.alias('id'),
-                     Document.identifier,
-                     Attachment.filename,
-                     Attachment.mimetype,
-                     Attachment.document_id)
-                 .switch(Document)
-                 .join(
-                     Attachment,
-                     on=(Document._meta.primary_key == Attachment.document))
-                 #.join(BlobData, on=(Attachment.hash == BlobData.hash))
-                 .dicts()
-                 .naive())
-
-        pq = PaginatedQuery(
-            apply_ordering(query, attachment_scope=True),
-            paginate_by=app.config['PAGINATE_BY'],
-            page_var=app.config['PAGE_VAR'],
-            check_bounds=False)
-
-        documents = list(pq.get_object_list())
-        for document in documents:
-            data_params = {
-                'document_id': document['id'],
-                'pk': document['filename']}
-            if app.config['AUTHENTICATION']:
-                data_params['key'] = app.config['AUTHENTICATION']
-            document['data'] = url_for('attachment_download', **data_params)
+    # Allow filtering by index.
+    idx_list = request.args.getlist('index')
+    if idx_list:
+        indexes = Index.select(Index.id).where(Index.name << idx_list)
     else:
-        pq = PaginatedQuery(
-            apply_ordering(query),
-            paginate_by=app.config['PAGINATE_BY'],
-            page_var=app.config['PAGE_VAR'],
-            check_bounds=False)
-        documents = Document.serialize_query(
-            pq.get_object_list(),
-            include_score=ranking is not None)
+        indexes = None
+
+    query = Attachment.search(
+        phrase or '*',
+        indexes,
+        ranking if phrase else None,
+        ordering,
+        force_star_all=True if not phrase else False,
+        **filters)
+    pq = PaginatedQuery(
+        query.naive().dicts(),
+        paginate_by=app.config['PAGINATE_BY'],
+        page_var=app.config['PAGE_VAR'],
+        check_bounds=False)
+
+    attachments = list(pq.get_object_list())
+    for attachment in attachments:
+        url_params = {
+            'document_id': attachment['id'],
+            'pk': attachment['filename']}
+        if app.config['AUTHENTICATION']:
+            url_params['key'] = app.config['AUTHENTICATION']
+        attachment['data'] = url_for('attachment_download', **url_params)
 
     return jsonify({
-        'documents': documents,
+        'attachment_count': Attachment.select().count(),
+        'attachments': attachments,
+        'filters': filters,
+        'ordering': ordering,
         'page': pq.get_page(),
-        'pages': pq.get_page_count()})
+        'pages': pq.get_page_count(),
+        'ranking': ranking,
+        'search_term': phrase,
+    })
 
 
 @app.errorhandler(InvalidRequestException)

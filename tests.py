@@ -16,7 +16,9 @@ from scout import Document
 from scout import IndexDocument
 from scout import Index
 from scout import InvalidRequestException
+from scout import InvalidSearchException
 from scout import Metadata
+from scout import RANK_BM25
 
 
 def get_option_parser():
@@ -94,9 +96,9 @@ class TestSearch(BaseTestCase):
                 )
 
     def search(self, index, query, page=1, **filters):
-        filters.setdefault('ranking', Index.RANK_BM25)
+        filters.setdefault('ranking', RANK_BM25)
         params = urllib.urlencode(dict(filters, q=query, page=page))
-        response = self.app.get('/%s/search/?%s' % (index, params))
+        response = self.app.get('/%s/?%s' % (index, params))
         return json.loads(response.data)
 
     def test_model_search(self):
@@ -223,7 +225,7 @@ class TestSearch(BaseTestCase):
 
     def test_search_queries(self):
         self.populate()
-        with assert_query_count(6):
+        with assert_query_count(8):
             results = self.search(
                 'default',
                 'testing',
@@ -340,7 +342,7 @@ class TestModelAPIs(BaseTestCase):
         for idx, content in enumerate(self.corpus):
             self.index.index(content=content)
 
-        def assertSearch(phrase, indexes, ranking=Index.RANK_BM25):
+        def assertSearch(phrase, indexes, ranking=RANK_BM25):
             results = [doc.content
                        for doc in self.index.search(phrase, ranking)]
             self.assertEqual(results, [self.corpus[idx] for idx in indexes])
@@ -353,16 +355,17 @@ class TestModelAPIs(BaseTestCase):
             assertSearch('faith thing', [2, 4])
         assertSearch('things', [4, 2])
         assertSearch('blah', [])
-        assertSearch('', [])
+        self.assertRaises(InvalidSearchException, self.index.search, '')
 
-        assertSearch('believe', [3, 0], Index.RANK_BM25)  # Same result.
+        assertSearch('believe', [3, 0], RANK_BM25)  # Same result.
         if IS_FTS5:
-            assertSearch('faith thing', [4, 2], Index.RANK_BM25)  # Swapped.
+            assertSearch('faith thing', [4, 2], RANK_BM25)  # Swapped.
         else:
-            assertSearch('faith thing', [2, 4], Index.RANK_BM25)  # Same.
-        assertSearch('things', [4, 2], Index.RANK_BM25)  # Same result.
-        assertSearch('blah', [], Index.RANK_BM25)  # No results, works.
-        assertSearch('', [], Index.RANK_BM25)
+            assertSearch('faith thing', [2, 4], RANK_BM25)  # Same.
+        assertSearch('things', [4, 2], RANK_BM25)  # Same result.
+        assertSearch('blah', [], RANK_BM25)  # No results, works.
+        self.assertRaises(
+            InvalidSearchException, self.index.search, '', RANK_BM25)
 
 
 class TestSearchViews(BaseTestCase):
@@ -417,9 +420,9 @@ class TestSearchViews(BaseTestCase):
         response = self.app.get('/')
         data = json.loads(response.data)
         self.assertEqual(data['indexes'], [
-            {'document_count': 0, 'documents': '/1/', 'id': 1, 'name': 'i0'},
-            {'document_count': 0, 'documents': '/2/', 'id': 2, 'name': 'i1'},
-            {'document_count': 0, 'documents': '/3/', 'id': 3, 'name': 'i2'},
+            {'document_count': 0, 'documents': '/i0/', 'id': 1, 'name': 'i0'},
+            {'document_count': 0, 'documents': '/i1/', 'id': 2, 'name': 'i1'},
+            {'document_count': 0, 'documents': '/i2/', 'id': 3, 'name': 'i2'},
         ])
 
     def test_index_missing(self):
@@ -774,9 +777,9 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(resp.data, 'zz')
 
     def search(self, index, query, page=1, **filters):
-        filters.setdefault('ranking', Index.RANK_BM25)
+        filters.setdefault('ranking', RANK_BM25)
         params = urllib.urlencode(dict(filters, q=query, page=page))
-        response = self.app.get('/%s/search/?%s' % (index, params))
+        response = self.app.get('/%s/?%s' % (index, params))
         return json.loads(response.data)
 
     def test_search(self):
@@ -890,23 +893,25 @@ class TestSearchViews(BaseTestCase):
 
         for idx in ['idx-a', 'idx-b']:
             for query in ['nug', 'nug*', 'document', 'missing']:
-                with assert_query_count(6):
+                with assert_query_count(8):
                     # 1. Get index.
-                    # 2. Prefetch indexes.
-                    # 3. Prefetch index documents.
-                    # 4. Prefetch metadata
-                    # 5. Fetch documents (top of prefetch).
-                    # 6. COUNT(*) for pagination.
+                    # 2. Get # of docs in index.
+                    # 3. Prefetch indexes.
+                    # 4. Prefetch index documents.
+                    # 5. Prefetch metadata
+                    # 6. Fetch documents (top of prefetch).
+                    # 7. COUNT(*) for pagination.
+                    # 8. COUNT(*) for pagination.
                     self.search(idx, query)
 
-                with assert_query_count(6):
+                with assert_query_count(8):
                     self.search(idx, query, foo='bar')
 
-        with assert_query_count(7):
+        with assert_query_count(8):
             # Same as above.
-            self.app.get('/idx-a/')
+            data = self.app.get('/idx-a/').data
 
-        with assert_query_count(5):
+        with assert_query_count(7):
             # Same as above minus first query for index.
             self.app.get('/documents/')
 
@@ -934,13 +939,13 @@ class TestSearchViews(BaseTestCase):
         resp = self.app.get('/?key=test')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(json.loads(resp.data)['indexes'], [{
-            'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/1/'
+            'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/idx/'
         }])
 
         resp = self.app.get('/', headers={'key': 'test'})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(json.loads(resp.data)['indexes'], [{
-            'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/1/'
+            'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/idx/'
         }])
 
 

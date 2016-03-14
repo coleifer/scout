@@ -17,26 +17,30 @@ This will run Scout locally on port 8000 using the Werkzeug multi-threaded WSGI 
 API Endpoints
 -------------
 
-There are three main concepts in Scout:
+There are four main concepts in Scout:
 
 * Indexes
 * Documents
+* Attachments
 * Metadata
 
 *Indexes* have a name and may contain any number of documents.
 
 *Documents* have content, which is indexed for search, and may be associated with any number of indexes.
 
+*Attachments* are arbitrary files which are associated with a document. For instance, if you were using Scout to provide search over a library of PDFs, your *Document* might contain the key search terms from the PDF and the actual PDF would be linked to the document as an attachment. A document may have any number of attachments, or none at all.
+
 Documents also can have *metadata*, arbitrary key/value pairs. Besides full-text search, Scout allows complex filtering based on metadata values. So in addition to storing useful things alongside your documents, you can also use metadata to provide an additional layer of filtering.
-
-For example a blog might have an index to store every post, and a separate index to store comments. The blog entry metadata might contain the ID of the entry, or the entry's title and URL for easy link generation. The comment metadata might store the comment's timestamp as metadata to allow searching for comments made in a specific time-frame.
-
-A news site might have an index for articles, an index for local events, and a "master" index containing both.
 
 Index list: "/"
 ---------------
 
 The index list endpoint returns the list of indexes and the number of documents contained within each. The list is not paginated and will display all available indexes. New indexes can be created by POST-ing a name to this URL.
+
+Valid GET parameters:
+
+* ``page``: which page of results to fetch, by default 1.
+* ``ordering``: order in which to return the indexes. By default they are returned ordered by name. Valid values are ``name``, ``id``, and ``document_count``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending.
 
 Example GET request and response:
 
@@ -51,16 +55,20 @@ Response:
     {
       "indexes": [
         {
-          "documents": 114,
+          "document_count": 75,
+          "documents": "/blog/",
           "id": 1,
           "name": "blog"
         },
         {
-          "documents": 36,
+          "document_count": 36,
+          "documents": "/photos/",
           "id": 2,
           "name": "photos"
         }
-      ]
+      ],
+      "page": 1,
+      "pages": 1
     }
 
 Example POST request and response:
@@ -74,6 +82,7 @@ Response:
 .. code-block:: javascript
 
     {
+      "document_count": 0,
       "documents": [],
       "id": 3,
       "name": "test-index",
@@ -88,7 +97,11 @@ Index detail: "/:index-name/"
 
 The index detail returns the name and ID of the index, as well as a paginated list of documents associated with the index. The index can be re-named by POSTing a ``name`` to this URL.
 
-To paginate the documents, you can append ``?page=X`` to the URL.
+Valid GET parameters:
+
+* ``page``: which page of results to fetch, by default 1.
+* ``ordering``: order in which to return the documents. By default they are returned in arbitrary order. Valid choices are ``id``, ``identifier``, and ``content``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending.
+* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
 
 Example ``GET`` request and response.
 
@@ -101,10 +114,13 @@ Response:
 .. code-block:: javascript
 
     {
+      "document_count": 3,
       "documents": [
         {
+          "attachments": "/documents/115/attachments/",
           "content": "test charlie document",
           "id": 115,
+          "identifier": null,
           "indexes": [
             "test-index"
           ],
@@ -113,8 +129,10 @@ Response:
           }
         },
         {
+          "attachments": "/documents/116/attachments/",
           "content": "test huey document",
           "id": 116,
+          "identifier": null,
           "indexes": [
             "test-index"
           ],
@@ -123,8 +141,10 @@ Response:
           }
         },
         {
+          "attachments": "/documents/117/attachments/",
           "content": "test mickey document",
           "id": 117,
+          "identifier": null,
           "indexes": [
             "test-index"
           ],
@@ -133,6 +153,7 @@ Response:
           }
         }
       ],
+      "filtered_document_count": 3,
       "id": 3,
       "name": "test-index",
       "page": 1,
@@ -162,17 +183,17 @@ Perform a search of documents associated with the given index. Results are retur
 
 Search queries are placed in the q GET parameter. You can also filter on document metadata by passing arbitrary key/value pairs corresponding to the metadata you wish to filter by. Check out the `SQLite FTS query documentation <http://sqlite.org/fts3.html#section_3>`_ for example search queries and an overview of search capabilities.
 
-Parameters:
+Valid GET parameters:
 
-* ``q``: contains the search query.
-* ``page``: the page number of results to display. If not present, the first page will be displayed.
-* ``ranking``: the ranking algorithm to use for scoring the entries. By default the simple method will be used, but if you are using a newer version of SQLite that supports FTS4, you can also use the bm25 algorithm.
+* ``q``: the search query.
+* ``page``: which page of results to fetch, by default 1.
+* ``ordering``: order in which to return the documents. By default they are returned in arbitrary order. Valid choices are ``score`` (quality of search result), ``id``, ``identifier``, and ``content``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending.
+* ``ranking``: the ranking algorithm to use for scoring the entries. By default the simple method will be used, but if you are using a newer version of SQLite that supports FTS4 or FTS5, you can also use the bm25 algorithm.
 
   * ``simple`` (default): use a simple, efficient ranking algorithm.
-  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4.
+  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
 
-* Arbitrary key/value pairs: used to match document *metadata*. Only documents whose metadata matches the key/value pairs will be included.
-* Metadata searches match on equality by default, but other types of expressions can be formed by appending ``'__<operation>'`` to the metadata key. For more information, see :ref:`the advance query section <advanced-query>`.
+* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
 
 Example search:
 
