@@ -807,6 +807,7 @@ class IndexView(ScoutView):
         pq = self.paginated_query(query)
         return jsonify({
             'indexes': [index.serialize() for index in pq.get_object_list()],
+            'ordering': ordering,
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 

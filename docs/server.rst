@@ -69,6 +69,7 @@ Response:
           "name": "photos"
         }
       ],
+      "ordering": [],
       "page": 1,
       "pages": 1
     }
@@ -108,8 +109,8 @@ Valid GET parameters:
 * ``ordering``: order in which to return the documents. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``id``, ``identifier``, ``content``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
 * ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
 
-  * ``simple`` (default): use a simple, efficient ranking algorithm.
   * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
+  * ``simple``: use a simple, efficient ranking algorithm.
   * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
 
 * **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
@@ -267,8 +268,8 @@ Valid GET parameters:
 * ``ordering``: order in which to return the documents. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``id``, ``identifier``, ``content``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
 * ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
 
-  * ``simple`` (default): use a simple, efficient ranking algorithm.
   * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
+  * ``simple``: use a simple, efficient ranking algorithm.
   * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
 
 * **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
@@ -570,8 +571,8 @@ Valid GET parameters:
 * ``ordering``: order in which to return the attachments. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``document``, ``hash``, ``filename``, ``mimetype``, ``timestamp``, ``id``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
 * ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
 
-  * ``simple`` (default): use a simple, efficient ranking algorithm.
   * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
+  * ``simple``: use a simple, efficient ranking algorithm.
   * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
 
 * **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
