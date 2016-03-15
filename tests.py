@@ -546,6 +546,7 @@ class TestSearchViews(BaseTestCase):
         Attachment.update(timestamp='2016-02-01 01:02:03').execute()
         resp = self.app.get(resp_data['attachments'])
         self.assertEqual(json.loads(resp.data), {
+            'ordering': [],
             'pages': 1,
             'page': 1,
             'attachments': [

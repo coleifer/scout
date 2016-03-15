@@ -385,8 +385,9 @@ class Attachment(BaseModel):
         # Transform query to apply to Attachments instead.
         query = (query
                  .select(
-                     Document._meta.primary_key.alias('id'),
+                     Document._meta.primary_key.alias('document_id'),
                      Document.identifier,
+                     Attachment.id,
                      Attachment.hash,
                      Attachment.filename,
                      Attachment.mimetype,
@@ -994,6 +995,7 @@ class AttachmentView(_FileProcessingView):
         pq = self.paginated_query(query)
         return jsonify({
             'attachments': [a.serialize() for a in pq.get_object_list()],
+            'ordering': ordering,
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
@@ -1083,23 +1085,36 @@ def attachment_search():
         force_star_all=True if not phrase else False,
         **filters)
     pq = PaginatedQuery(
-        query.naive().dicts(),
+        query.naive(),
         paginate_by=app.config['PAGINATE_BY'],
         page_var=app.config['PAGE_VAR'],
         check_bounds=False)
 
-    attachments = list(pq.get_object_list())
-    for attachment in attachments:
+    response = []
+    for attachment in pq.get_object_list():
+        data = {
+            'document_id': attachment.document_id,
+            'filename': attachment.filename,
+            'hash': attachment.hash,
+            'id': attachment.id,
+            'identifier': attachment.identifier,
+            'mimetype': attachment.mimetype,
+            'timestamp': attachment.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        if phrase:
+            data['score'] = attachment.score
+
         url_params = {
-            'document_id': attachment['id'],
-            'pk': attachment['filename']}
+            'document_id': data['document_id'],
+            'pk': data['filename']}
         if app.config['AUTHENTICATION']:
             url_params['key'] = app.config['AUTHENTICATION']
-        attachment['data'] = url_for('attachment_download', **url_params)
+        data['data'] = url_for('attachment_download', **url_params)
+        response.append(data)
 
     return jsonify({
         'attachment_count': Attachment.select().count(),
-        'attachments': attachments,
+        'attachments': response,
         'filters': filters,
         'ordering': ordering,
         'page': pq.get_page(),

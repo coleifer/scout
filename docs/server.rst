@@ -99,15 +99,24 @@ The index detail returns the name and ID of the index, as well as a paginated li
 
 Valid GET parameters:
 
+* ``q``: full-text search query.
 * ``page``: which page of results to fetch, by default 1.
-* ``ordering``: order in which to return the documents. By default they are returned in arbitrary order. Valid choices are ``id``, ``identifier``, and ``content``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending.
+* ``ordering``: order in which to return the documents. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``id``, ``identifier``, ``content``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
+* ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
+
+  * ``simple`` (default): use a simple, efficient ranking algorithm.
+  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
+  * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
+
 * **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
+
+When a search query is present, each returned document will have an additional field named ``score``. This field contains the numerical value the scoring algorithm gave to the document. To disable scores when searching, you can specify ``ranking=none``.
 
 Example ``GET`` request and response.
 
 .. code-block:: console
 
-    $ curl localhost:8000/test-index/
+    $ curl localhost:8000/test-index/?q=test
 
 Response:
 
@@ -126,7 +135,8 @@ Response:
           ],
           "metadata": {
             "is_kitty": "no"
-          }
+          },
+          "score": -0.022727272727272728
         },
         {
           "attachments": "/documents/116/attachments/",
@@ -138,7 +148,8 @@ Response:
           ],
           "metadata": {
             "is_kitty": "yes"
-          }
+          },
+          "score": -0.022727272727272728
         },
         {
           "attachments": "/documents/117/attachments/",
@@ -150,14 +161,19 @@ Response:
           ],
           "metadata": {
             "is_kitty": "no"
-          }
+          },
+          "score": -0.022727272727272728
         }
       ],
-      "filtered_document_count": 3,
+      "filtered_count": 3,
+      "filters": {},
       "id": 3,
       "name": "test-index",
+      "ordering": [],
       "page": 1,
-      "pages": 1
+      "pages": 1,
+      "ranking": "bm25",
+      "search_term": "test"
     }
 
 ``POST`` requests update the ``name`` of the index, and like the *index_list* view, accept a ``name`` parameter. For example request and response, see the above section on creating a new index.
@@ -176,96 +192,10 @@ Response:
 
     {"success": true}
 
-Index search: "/:index-name/search/"
-------------------------------------
+.. _metadata-filters:
 
-Perform a search of documents associated with the given index. Results are returned as a paginated list of documents.
-
-Search queries are placed in the q GET parameter. You can also filter on document metadata by passing arbitrary key/value pairs corresponding to the metadata you wish to filter by. Check out the `SQLite FTS query documentation <http://sqlite.org/fts3.html#section_3>`_ for example search queries and an overview of search capabilities.
-
-Valid GET parameters:
-
-* ``q``: the search query.
-* ``page``: which page of results to fetch, by default 1.
-* ``ordering``: order in which to return the documents. By default they are returned in arbitrary order. Valid choices are ``score`` (quality of search result), ``id``, ``identifier``, and ``content``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending.
-* ``ranking``: the ranking algorithm to use for scoring the entries. By default the simple method will be used, but if you are using a newer version of SQLite that supports FTS4 or FTS5, you can also use the bm25 algorithm.
-
-  * ``simple`` (default): use a simple, efficient ranking algorithm.
-  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
-
-* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
-
-Example search:
-
-.. code-block:: console
-
-    $ curl "localhost:8000/test-index/search/?q=huey+OR+mickey"
-
-Response:
-
-.. code-block:: javascript
-
-    {
-      "documents": [
-        {
-          "content": "test mickey document",
-          "id": 117,
-          "indexes": [
-            "test-index"
-          ],
-          "metadata": {
-            "is_kitty": "no"
-          },
-          "score": 0.16666666666666666
-        },
-        {
-          "content": "test huey document",
-          "id": 116,
-          "indexes": [
-            "test-index"
-          ],
-          "metadata": {
-            "is_kitty": "yes"
-          },
-          "score": 0.022727272727272728
-        }
-      ],
-      "page": 1,
-      "pages": 1
-    }
-
-We can also search using metadata. We'll use the same query as above, but also include ``&is_kitty=yes``.
-
-.. code-block:: console
-
-    $ curl "localhost:8000/test-index/search/?q=huey+OR+mickey&is_kitty=yes"
-
-Response:
-
-.. code-block:: javascript
-
-    {
-      "documents": [
-        {
-          "content": "test huey document",
-          "id": 116,
-          "indexes": [
-            "test-index"
-          ],
-          "metadata": {
-            "is_kitty": "yes"
-          },
-          "score": 0.022727272727272728
-        }
-      ],
-      "page": 1,
-      "pages": 1
-    }
-
-.. _advanced-query:
-
-Using advanced query filters
-----------------------------
+Filtering on Metadata
+---------------------
 
 Suppose we have an index that contains all of our contacts. The search content consists of the person's name, address, city, and state. We also have stored quite a bit of metadata about each person. A person record might look like this:
 
@@ -283,21 +213,23 @@ The metadata for this record consists of the following:
       'state': 'KS',
     }}
 
-Let's say we want to search our index for all people who were born in 1983. We could use the following URL:
+To search for all my relatives living in Kansas, I could use the following URL:
 
-``/contacts-index/search/?q=*&dob__ge=1983-01-01&dob__lt=1984-01-01``
+``/contacts-index/?q=Leifer+OR+Morgan&state=KS``
+
+Let's say we want to search our contacts index for all people who were born in 1983. We could use the following URL:
+
+``/contacts-index/?dob__ge=1983-01-01&dob__lt=1984-01-01``
 
 To search for all people who live in Lawrence or Topeka, KS we could use the following URL:
 
-``/contacts-index/search/?q=*&city__in=Lawrence,Topeka&state=KS``
+``/contacts-index/?city__in=Lawrence,Topeka&state=KS``
 
 Scout will take all filters and return only those records that match all of the given conditions. However, when the same key is used multiple times, Scout will use ``OR`` to join those clauses. For example, another way we could query for people who live in Lawrence or Topeka would be:
 
 ``/contacts-index/search/?q=*&city=Lawrence&city=Topeka&state=KS``
 
 As you can see, we're querying ``city=XXX`` twice. Scout will interpret that as meaning ``(city=Lawrence OR city=Topeka) AND state=KS``.
-
-.. note:: In these example URLs we're using the asterisk ("``*``") to return all records. This option is disabled by default, but you can enable it by specifying ``-a`` in your :ref:`command-line options <command-line-options>` or ``STAR_ALL=True`` in your :ref:`config file <config-file>`.
 
 Query operations
 ^^^^^^^^^^^^^^^^
@@ -320,51 +252,79 @@ There are a number of operations available for use when querying metadata. Here 
 Document list: "/documents/"
 ----------------------------
 
-The document list endpoint returns a paginated list of all documents, regardless of index. New documents are indexed by ``POST``-ing the content, index(es) and optional metadata.
+The document list endpoint returns a paginated list of all documents, regardless of index. New documents are created by ``POST``-ing the content, index(es) and optional metadata.
+
+Valid GET parameters:
+
+* ``q``: full-text search query.
+* ``page``: which page of documents to fetch, by default 1.
+* ``index``: the name of an index to restrict the results to. **Note**: this parameter can appear multiple times.
+* ``ordering``: order in which to return the documents. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``id``, ``identifier``, ``content``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
+* ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
+
+  * ``simple`` (default): use a simple, efficient ranking algorithm.
+  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
+  * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
+
+* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
+
+When a search query is present, each returned document will have an additional field named ``score``. This field contains the numerical value the scoring algorithm gave to the document. To disable scores when searching, you can specify ``ranking=none``.
+
+Example ``GET`` request and response. In the request below we are searching for the string *"test"* in the ``photos``, ``articles`` and ``videos`` indexes.
+
+.. code-block:: console
+
+    $ curl localhost:8000/documents/?q=test&index=photos&index=articles&index=videos
+
+Response:
+
+.. code-block:: javascript
+
+    {
+      "document_count": 207,
+      "documents": [
+        {
+          "attachments": "/documents/72/attachments/",
+          "content": "test photo",
+          "id": 72,
+          "identifier": null,
+          "indexes": [
+            "photos"
+          ],
+          "metadata": {
+            "timestamp": "2016-03-01 13:37:00"
+          },
+          "score": -0.01304
+        },
+        {
+          "attachments": "/documents/61/attachments/",
+          "content": "test video upload",
+          "id": 61,
+          "identifier": null,
+          "indexes": [
+            "videos"
+          ],
+          "metadata": {
+            "timestamp": "2016-03-02 13:37:00"
+          },
+          "score": -0.01407
+        }
+      ],
+      "filtered_count": 2,
+      "filters": {},
+      "ordering": [],
+      "page": 1,
+      "pages": 1,
+      "ranking": "bm25",
+      "search_term": "test"
+    }
 
 ``POST`` requests should have the following parameters:
 
 * ``content`` (required): the document content.
 * ``index`` or ``indexes`` (required): the name(s) of the index(es) the document should be associated with.
+* ``identifier`` (optional): an application-defined identifier for the document.
 * ``metadata`` (optional): arbitrary key/value pairs.
-
-Example GET request and response:
-
-.. code-block:: console
-
-    $ curl localhost:8000/documents/
-
-Response (truncated):
-
-.. code-block:: javascript
-
-    {
-      "documents": [
-        {
-          "content": "test charlie document",
-          "id": 115,
-          "indexes": [
-            "test-index"
-          ],
-          "metadata": {
-            "is_kitty": "no"
-          }
-        },
-        {
-          "content": "test huey document",
-          "id": 116,
-          "indexes": [
-            "test-index"
-          ],
-          "metadata": {
-            "is_kitty": "yes"
-          }
-        },
-        ...
-      ],
-      "page": 1,
-      "pages": 3
-    }
 
 Example ``POST`` request creating a new document:
 
@@ -406,8 +366,10 @@ Response:
 .. code-block:: javascript
 
     {
+      "attachments": "/documents/118/attachments/",
       "content": "test zaizee document",
       "id": 118,
+      "identifier": null,
       "indexes": [
         "test-index"
       ],
@@ -454,6 +416,195 @@ Response:
 .. code-block:: javascript
 
     {"success": true}
+
+Attachment list: "/documents/:document-id/attachments/"
+-------------------------------------------------------
+
+The attachment list endpoint returns a paginated list of all attachments associated with a given document. New attachments are created by ``POST``-ing a file to this endpoint.
+
+Valid GET parameters:
+
+* ``page``: which page of attachments to fetch, by default 1.
+* ``ordering``: order in which to return the attachments. By default they are returned by filename. Valid choices are ``id``, ``hash``, ``filename``, ``mimetype``, and ``timestamp``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
+
+Example ``GET`` request and response.
+
+.. code-block:: console
+
+    $ curl localhost:8000/documents/13/attachments/?ordering=timestamp
+
+Response:
+
+.. code-block:: javascript
+
+    {
+      "attachments": [
+        {
+          "data": "/documents/13/attachments/banner.jpg/download/",
+          "data_length": 135350,
+          "document": "/documents/13/",
+          "filename": "banner.jpg",
+          "mimetype": "image/jpeg",
+          "timestamp": "2016-03-01 13:37:01"
+        },
+        {
+          "data": "/documents/13/attachments/background.jpg/download/",
+          "data_length": 25039,
+          "document": "/documents/13/",
+          "filename": "background.jpg",
+          "mimetype": "image/jpeg",
+          "timestamp": "2016-03-01 13:37:02"
+        }
+      ],
+      "ordering": ["timestamp"],
+      "page": 1,
+      "pages": 1
+    }
+
+``POST`` requests should contain the attachments as form-encoded files. The :ref:`Scout client <client>` will handle this automatically for you.
+
+Example ``POST`` request uploading a new attachment:
+
+.. code-block:: console
+
+    $ curl \
+        -H "Content-Type: multipart/form-data" \
+        -F 'data=""' \
+        -F "file_0=@/path/to/image.jpg" \
+        -X POST \
+        http://localhost:8000/documents/13/attachments/
+
+Response on creating a new attachment:
+
+.. code-block:: javascript
+
+    {
+      "attachments": [
+        {
+          "data": "/documents/13/attachments/some-image.jpg/download/",
+          "data_length": 18912,
+          "document": "/documents/13/",
+          "filename": "some-image.jpg",
+          "mimetype": "image/jpeg",
+          "timestamp": "2016-03-14 13:38:00"
+        }
+      ]
+    }
+
+.. note:: You can upload multiple attachments at the same time.
+
+Attachment detail: "/documents/:document-id/attachments/:filename/"
+-------------------------------------------------------------------
+
+The attachment detail endpoint returns basic information about the attachment, as well as a link to download the actual attached file. Attachments can be updated or deleted by using ``POST`` and ``DELETE`` requests, respectively. When you update an attachment, the original is deleted and a new attachment created for the uploaded content.
+
+Example ``GET`` request and response:
+
+.. code-block:: console
+
+    $ curl localhost:8000/documents/13/attachments/test-image.png/
+
+Response:
+
+.. code-block:: javascript
+
+    {
+      "data": "/documents/13/attachments/test-image.png/download/",
+      "data_length": 3710133,
+      "document": "/documents/13/",
+      "filename": "test-image.png",
+      "mimetype": "image/png",
+      "timestamp": "2016-03-14 22:10:00"
+    }
+
+``DELETE`` requests are used to  **detach** a file from a document.
+
+Example ``DELETE`` request and response:
+
+.. code-block:: console
+
+  $ curl -X DELETE localhost:8000/documents/13/attachments/test-image.png/
+
+Response:
+
+.. code-block:: javascript
+
+    {"success": true}
+
+Attachment download: "/documents/:document-id/attachments/:filename/download/"
+------------------------------------------------------------------------------
+
+The attachment download endpoint is a special URL that returns the attached file as a downloadable HTTP response. This is the only way to access an attachment's underlying file data.
+
+To download an attachment, simply send a ``GET`` request to the attachment's "data" URL:
+
+.. code-block:: console
+
+    $ curl http://localhost:8000/documents/13/attachments/banner.jpg/download/
+
+Attachment search: "/documents/attachments/search/"
+---------------------------------------------------
+
+The attachment search is identical to the document list endpoint, with the difference that instead of returning documents, the returned data is a list of attachments.
+
+Valid GET parameters:
+
+* ``q``: full-text search query.
+* ``page``: which page of results to fetch, by default 1.
+* ``index``: the name of an index to restrict the results to. **Note**: this parameter can appear multiple times.
+* ``ordering``: order in which to return the attachments. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``document``, ``hash``, ``filename``, ``mimetype``, ``timestamp``, ``id``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
+* ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
+
+  * ``simple`` (default): use a simple, efficient ranking algorithm.
+  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
+  * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
+
+* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
+
+Example ``GET`` request and response.
+
+.. code-block:: console
+
+    $ curl localhost:8000/documents/attachments/?q=testing
+
+Response:
+
+.. code-block:: javascript
+
+    {
+      attachment_count: 2,
+      attachments: [
+        {
+          data: "/documents/13/attachments/banner.jpg/download/",
+          document_id: 13,
+          filename: "banner.jpg",
+          hash: "fT/hMy/a5yxO9vWe/Q5MiAhN7Qob3QCvhm2wpHJ3dWg=",
+          id: 2,
+          identifier: null,
+          mimetype: "image/jpeg",
+          score: -0.15657480712302124,
+          timestamp: "2016-03-04 00:00:00"
+        },
+        {
+          data: "/documents/13/attachments/background.jpg/download/",
+          document_id: 13,
+          filename: "background.jpg",
+          hash: "WCrgLseHOxMEO3mB+LXksqklEJb2prL+OJhVzTbkC7Q=",
+          id: 3,
+          identifier: null,
+          mimetype: "image/jpeg",
+          score: -0.15657480712302124,
+          timestamp: "2016-03-04 01:00:00"
+        }
+      ],
+      filters: {},
+      ordering: [],
+      page: 1,
+      pages: 1,
+      ranking: "bm25",
+      search_term: "testing"
+    }
+
 
 Example of using Authentication
 -------------------------------
