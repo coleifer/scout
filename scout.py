@@ -990,13 +990,7 @@ class AttachmentView(_FileProcessingView):
                  .where(Attachment.document == document))
 
         ordering = request.args.getlist('ordering')
-        query = apply_sorting(query, ordering, {
-            'document': Attachment.document,
-            'hash': Attachment.hash,
-            'filename': Attachment.filename,
-            'mimetype': Attachment.mimetype,
-            'timestamp': Attachment.timestamp,
-            'id': Attachment.id}, 'filename')
+        query = Attachment.apply_rank_and_sort(query, None, ordering)
 
         pq = self.paginated_query(query)
         return jsonify({
