@@ -982,7 +982,12 @@ class AttachmentView(_FileProcessingView):
 
     def list_view(self, document_id):
         document = self._get_document(document_id)
-        query = document.attachments
+        query = (Attachment
+                 .select(Attachment, BlobData)
+                 .join(
+                     BlobData,
+                     on=(Attachment.hash == BlobData.hash).alias('_blob'))
+                 .where(Attachment.document == document))
 
         ordering = request.args.getlist('ordering')
         query = apply_sorting(query, ordering, {
@@ -1191,7 +1196,7 @@ def get_option_parser():
         '-s',
         '--stem',
         dest='stem',
-        help='Specify stemming algorithm for content (default="porter").')
+        help='Specify stemming algorithm for content.')
     parser.add_option(
         '-d',
         '--debug',

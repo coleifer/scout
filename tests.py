@@ -544,7 +544,10 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'k1': 'v1-a', 'k2': 'v2-a'}})
 
         Attachment.update(timestamp='2016-02-01 01:02:03').execute()
-        resp = self.app.get(resp_data['attachments'])
+
+        with assert_query_count(3):
+            resp = self.app.get(resp_data['attachments'])
+
         self.assertEqual(json.loads(resp.data), {
             'ordering': [],
             'pages': 1,
