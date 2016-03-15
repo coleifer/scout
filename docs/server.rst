@@ -192,7 +192,7 @@ Response:
 
     {"success": true}
 
-.. _metadata-filters:
+.. _metadata_filters:
 
 Filtering on Metadata
 ---------------------
