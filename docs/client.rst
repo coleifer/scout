@@ -19,107 +19,41 @@ Scout comes with a simple Python client. This document describes the client API.
         >>> from scout_client import Scout
         >>> scout = Scout('https://search.my-site.com/', key='secret!')
 
-    .. py:method:: get_indexes()
+    .. py:method:: get_indexes(**kwargs)
 
         Return the list of indexes available on the server.
 
-        Data returned:
-
-        * document_count
-        * documents link (URI for list of indexed documents)
-        * id
-        * name
-
-        Example:
-
-        .. code-block:: pycon
-
-            >>> scout.get_indexes()
-            [{'document_count': 132, 'documents': '/3/', 'id': 3, 'name': 'blog-entries'},
-             {'document_count': 18, 'documents': '/3/', 'id': 2, 'name': 'test-index'},
-             {'document_count': 830, 'documents': '/3/', 'id': 1, 'name': 'vault'}]
+        See :ref:`index_list` for more information.
 
     .. py:method:: create_index(name)
 
         Create a new index with the given name. If an index with that name already exists, you will receive a 400 response.
 
-        Example:
-
-        .. code-block:: pycon
-
-            >>> scout.create_index('new-index')
-            {'document_count': 0,
-             'documents': [],
-             'id': 5,
-             'name': 'new-index',
-             'page': 1,
-             'pages': 0}
+        See the POST section of :ref:`index_list` for more information.
 
     .. py:method:: rename_index(old_name, new_name)
 
         Rename an existing index.
 
-        Example:
-
-        .. code-block:: pycon
-
-            >>> scout.rename_index('new-index', 'renamed-index')
-            {'document_count': 0,
-             'documents': [],
-             'id': 5,
-             'name': 'renamed-index',
-             'page': 1,
-             'pages': 0}
-
     .. py:method:: delete_index(name)
 
-        Delete an existing index.
+        Delete an existing index. Any documents associated with the index will **not** be deleted.
 
-        Example:
-
-        .. code-block:: pycon
-
-            >>> scout.delete_index('renamed-index')
-            {'success': True}
-
-    .. py:method:: get_index([page=None])
+    .. py:method:: get_index(name, **kwargs)
 
         Return the details about the particular index, along with a paginated list of all documents stored in the given index.
 
-        By default the results are paginated 50 documents-per-page. To retrieve a particular page of results, specify ``page=X``.
+        The following optional parameters are supported:
 
-        Example:
+        :param q: full-text search query to be run over the documents in this index.
+        :param ordering: columns to sort results by. By default, when you perform a search the results will be ordered by relevance.
+        :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``simple`` or ``none``.
+        :param page: page number of results to retrieve
+        :param **filters: Arbitrary key/value pairs used to filter the metadata.
 
-        .. code-block:: pycon
+        The :ref:`metadata_filters` section describes how to use key/value pairs t construct filters on the document's metadata.
 
-            >>> scout.get_index('vault')
-
-            {'document_count': 58,
-             'documents': [
-                {'attachments': '/documents/1/attachments/',
-                 'content': 'The Rendlesham forest incident is one of the most interesting UFO accounts.',
-                 'id': 1,
-                 'identifier': None,
-                 'indexes': ['vault'],
-                 'metadata': {'type': 'ufo'}},
-                {'attachments': '/documents/2/attachments/',
-                 'content': 'Huey is not very interested in UFOs.',
-                 'id': 2,
-                 'identifier': None,
-                 'indexes': ['vault'],
-                 'metadata': {'type': 'huey'}},
-                {'attachments': '/documents/3/attachments/',
-                 'content': 'Sometimes I wonder if huey is an alien.',
-                 'id': 3,
-                 'identifier': None,
-                 'indexes': ['vault'],
-                 'metadata': {'type': 'huey'}},
-                ... snip ...
-             ],
-             'id': 1,
-             'name': 'vault',
-             'page': 1,
-             'pages': 2}
+        See :ref:`index_detail` for more information.
 
     .. py:method:: create_document(content, indexes[, identifier=None[, attachments=None[, **metadata]]])
 
@@ -130,17 +64,6 @@ Scout comes with a simple Python client. This document describes the client API.
         :param identifier: Optional alternative user-defined identifier for document.
         :param attachments: An optional mapping of filename to file-like object, which should be uploaded and stored as attachments on the given document.
         :param metadata: Arbitrary key/value pairs to store alongside the document content.
-
-        .. code-block:: pycon
-
-            >>> scout.create_document('another test', 'test-index', foo='bar')
-
-            {'attachments': '/documents/7/attachments',
-             'content': 'another test',
-             'id': 7,
-             'identifier': None,
-             'indexes': ['test-index'],
-             'metadata': {'foo': 'bar'}}
 
     .. py:method:: update_document([document_id=None[, content=None[, indexes=None[, metadata=None[, identifier=None[, attachments=None]]]]]])
 
@@ -155,31 +78,11 @@ Scout comes with a simple Python client. This document describes the client API.
 
         .. note:: If you specify metadata when updating a document, existing metadata will be replaced by the new metadata. To simply clear out the metadata for an existing document, pass an empty ``dict``.
 
-        Example:
-
-        .. code-block:: pycon
-
-            >>> scout.update_document(document_id=7, content='updated content')
-
-            {'attachments': '/documents/7/attachments',
-             'content': 'updated content',
-             'id': 7,
-             'identifier': None,
-             'indexes': ['test-index'],
-             'metadata': {'foo': 'bar'}}
-
     .. py:method:: delete_document(document_id)
 
         Remove a document from the database, as well as all indexes.
 
         :param int document_id: The integer document ID.
-
-        Example:
-
-        .. code-block:: pycon
-
-            >>> scout.delete_document(7)
-            {'success': True}
 
     .. py:method:: get_document(document_id)
 
@@ -187,81 +90,81 @@ Scout comes with a simple Python client. This document describes the client API.
 
         :param int document_id: The integer document ID.
 
-        Example:
-
-        .. code-block:: pycon
-
-            >>> scout.get_document(7)
-
-            {'attachments': '/documents/7/attachments',
-             'content': 'updated content',
-             'id': 7,
-             'identifier': None,
-             'indexes': ['test-index'],
-             'metadata': {'foo': 'bar'}}
-
     .. py:method:: get_documents(**kwargs)
 
-        Retrieve a paginated list of all documents in the database, regardless of index.
+        Retrieve a paginated list of all documents in the database, regardless of index. This method can also be used to perform full-text search queries across the entire database of documents, or a subset of indexes.
 
-        :param kwargs: Arbitrary keyword arguments passed to the API.
+        The following optional parameters are supported:
 
-    .. py:method:: search(index, query, **kwargs)
+        :param q: full-text search query to be run over the documents in this index.
+        :param ordering: columns to sort results by. By default, when you perform a search the results will be ordered by relevance.
+        :param index: one or more index names to restrict the results to.
+        :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``simple`` or ``none``.
+        :param page: page number of results to retrieve
+        :param **filters: Arbitrary key/value pairs used to filter the metadata.
 
-        :param str index: The name of the index to search in.
-        :param str query: Search query. SQLite's full-text index supports a wide variety of `query operations <http://sqlite.org/fts3.html#section_3>`_.
-        :param kwargs: Additional search parameters.
+        The :ref:`metadata_filters` section describes how to use key/value pairs t construct filters on the document's metadata.
 
-        Search the specified index for documents matching the given query. A paginated list of results will be returned. Additionally, you can filter on metadata for exact matches.
+        See :ref:`document_list` for more information.
 
-        Valid values for ``kwargs``:
+    .. py:method:: attach_files(document_id, attachments)
 
-        * ``page=X``
-        * ``ranking=(simple|bm25)``, use the specified ranking algorithm for scoring search results. By default Scout uses the *simple* algorithm.
-        * Arbitrary key/value pairs for filtering based on metadata values.
+        :param document_id: The integer ID of the document.
+        :param attachments: A dictionary mapping filename to file-like object.
 
-        Example search without any filters:
+        Upload the attachments and associate them with the given document.
 
-        .. code-block:: pycon
+        For more information, see :ref:`attachment_list`.
 
-            >>> results = scout.search('vault', 'interesting', ranking='bm25')
-            >>> print results['documents']
-            [{'content': 'Huey is not very interested in UFOs.',
-              'id': 2,
-              'indexes': ['vault'],
-              'metadata': {'type': 'huey'},
-              'score': 0.6194637905555267},
-             {'content': 'The Rendlesham forest incident is one of the most interesting UFO accounts.',
-              'id': 1,
-              'indexes': ['vault'],
-              'metadata': {'type': 'ufo'},
-              'score': 0.48797383501308006}]
+    .. py:method:: detach_file(document_id, filename)
 
-        The same search with a filter on ``type``:
+        :param document_id: The integer ID of the document.
+        :param filename: The filename of the attachment to remove.
 
-        .. code-block:: pycon
+        Detach the specified file from the document.
 
-            >>> results = scout.search('vault', 'interesting', type='huey')
-            >>> print results['documents']
-            [{'content': 'Huey is not very interested in UFOs.',
-              'id': 2,
-              'indexes': ['vault'],
-              'metadata': {'type': 'huey'},
-              'score': 0.5}]
+    .. py:method:: update_file(document_id, filename, file_object)
 
-        To use a filter with multiple values, you can pass in a list. The resulting filter will use ``OR`` logic to combine the expressions. The resulting query searches for the word "interesting" and then filters the results such that the metadata type contains either the substring 'huey' or 'ufo':
+        :param document_id: The integer ID of the document.
+        :param filename: The filename of the attachment to update.
+        :param file_object: A file-like object.
 
-        .. code-block:: pycon
+        Replace the contents of the current attachment with the contents of ``file_object``.
 
-            >>> results = scout.search('vault', 'interesting', type__contains=['huey', 'ufo'])
-            >>> print results['documents']
-            [{'content': 'Huey is not very interested in UFOs.',
-              'id': 2,
-              'indexes': ['vault'],
-              'metadata': {'type': 'huey'},
-              'score': 0.6194637905555267},
-             {'content': 'The Rendlesham forest incident is one of the most interesting UFO accounts.',
-              'id': 1,
-              'indexes': ['vault'],
-              'metadata': {'type': 'ufo'},
-              'score': 0.48797383501308006}]
+    .. py:method:: get_attachments(document_id, **kwargs)
+
+        Retrieve a paginated list of attachments associated with the given document.
+
+        The following optional parameters are supported:
+
+        :param ordering: columns to use when sorting attachments.
+        :param page: page number of results to retrieve
+
+        For more information, see :ref:`attachment_list`.
+
+    .. py:method:: get_attachment(document_id, filename)
+
+        Retrieve data about the given attachment.
+
+        For more information, see :ref:`attachment_detail`.
+
+    .. py:method:: download_attachment(document_id, filename)
+
+        Download the specified attachment.
+
+        For more information, see :ref:`attachment_download`.
+
+    .. py:method:: search_attachments(**kwargs)
+
+        Perform full-text search and/or advanced filtering and sorting on a paginated list of attachments.
+
+        The following optional parameters are supported:
+
+        :param q: full-text search query.
+        :param page: page number of results to retrieve
+        :param index: the name or names of indexes to restrict the results to.
+        :param ordering: order in which to return the attachments. By default they are returned ordered by filename, unless a full-text search query is present, in which case they are ordered by relevance.
+        :param ranking: The ranking algorithm used for full-text searches.
+        :param **filters: Arbitrary key/value metadata filters. See :ref:`metadata_filters` for more information.
+
+        For more information, see :ref:`attachment_search` and :ref:`document_list`.

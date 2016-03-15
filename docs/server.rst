@@ -32,6 +32,8 @@ There are four main concepts in Scout:
 
 Documents also can have *metadata*, arbitrary key/value pairs. Besides full-text search, Scout allows complex filtering based on metadata values. So in addition to storing useful things alongside your documents, you can also use metadata to provide an additional layer of filtering.
 
+.. _index_list:
+
 Index list: "/"
 ---------------
 
@@ -91,6 +93,8 @@ Response:
     }
 
 The POST response corresponds to the serialized index detail for the newly-created index.
+
+.. _index_detail:
 
 Index detail: "/:index-name/"
 -----------------------------
@@ -248,6 +252,7 @@ There are a number of operations available for use when querying metadata. Here 
 * ``keyname__endswith``: Suffix search.
 * ``keyname__regex``: Search using a regular expression.
 
+.. _document_list:
 
 Document list: "/documents/"
 ----------------------------
@@ -348,6 +353,8 @@ Response on creating a new document:
       "metadata": {}
     }
 
+.. _document_detail:
+
 Document detail: "/documents/:document-id/"
 -------------------------------------------
 
@@ -416,6 +423,8 @@ Response:
 .. code-block:: javascript
 
     {"success": true}
+
+.. _attachment_list:
 
 Attachment list: "/documents/:document-id/attachments/"
 -------------------------------------------------------
@@ -493,6 +502,8 @@ Response on creating a new attachment:
 
 .. note:: You can upload multiple attachments at the same time.
 
+.. _attachment_detail:
+
 Attachment detail: "/documents/:document-id/attachments/:filename/"
 -------------------------------------------------------------------
 
@@ -531,6 +542,8 @@ Response:
 
     {"success": true}
 
+.. _attachment_download:
+
 Attachment download: "/documents/:document-id/attachments/:filename/download/"
 ------------------------------------------------------------------------------
 
@@ -541,6 +554,8 @@ To download an attachment, simply send a ``GET`` request to the attachment's "da
 .. code-block:: console
 
     $ curl http://localhost:8000/documents/13/attachments/banner.jpg/download/
+
+.. _attachment_search:
 
 Attachment search: "/documents/attachments/search/"
 ---------------------------------------------------

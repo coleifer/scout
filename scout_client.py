@@ -183,8 +183,8 @@ class Scout(object):
                                 (document_id, filename),
                                 {}, {filename: file_object})
 
-    def get_attachments(self, document_id):
-        return self.get('/documents/%s/attachments/' % document_id)
+    def get_attachments(self, document_id, **kwargs):
+        return self.get('/documents/%s/attachments/' % document_id, **kwargs)
 
     def get_attachment(self, document_id, filename):
         return self.get('/documents/%s/attachments/%s/' %
