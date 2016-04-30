@@ -179,9 +179,9 @@ class Scout(object):
                            (document_id, filename))
 
     def update_file(self, document_id, filename, file_object):
-        return self.post_filese('/documents/%s/attachments/%s/' %
-                                (document_id, filename),
-                                {}, {filename: file_object})
+        return self.post_files('/documents/%s/attachments/%s/' %
+                               (document_id, filename),
+                               {}, {filename: file_object})
 
     def get_attachments(self, document_id, **kwargs):
         return self.get('/documents/%s/attachments/' % document_id, **kwargs)
