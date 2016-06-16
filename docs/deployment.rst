@@ -9,7 +9,7 @@ Scout provides a WSGI app, so you can use any WSGI server for deployment. Popula
 
 * `Gevent <http://www.gevent.org/>`_
 * `Gunicorn <http://gunicorn.org/>`_
-* `uWSGI <https://uwsgi-docs.readthedocs.org/en/latest/>`_
+* `uWSGI <https://uwsgi-docs.readthedocs.io/en/latest/>`_
 
 The Flask documentation also provides a list of popular WSGI servers and how to integrate them with Flask apps. Since Scout is a Flask application, all of these examples should work with minimal modification:
 
@@ -70,4 +70,4 @@ Here is how you might run using the above wrapper script:
 
     $ uwsgi --http :8000 --wsgi-file wrapper.py --master --processes 4 --threads 2
 
-It is common to run uWSGI behind Nginx. For more information `check out the uWSGI docs <http://uwsgi-docs.readthedocs.org/en/latest/WSGIquickstart.html>`_.
+It is common to run uWSGI behind Nginx. For more information `check out the uWSGI docs <https://uwsgi-docs.readthedocs.io/en/latest/WSGIquickstart.html>`_.

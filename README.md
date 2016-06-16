@@ -1,6 +1,6 @@
 ![](http://media.charlesleifer.com/blog/photos/scout-logo.png)
 
-[scout](http://scout.readthedocs.org/en/latest/) is a RESTful search server written in Python. The search is powered by [SQLite's full-text search extension](http://sqlite.org/fts3.html), and the web application utilizes the [Flask](http://flask.pocoo.org) framework.
+[scout](https://scout.readthedocs.io/en/latest/) is a RESTful search server written in Python. The search is powered by [SQLite's full-text search extension](http://sqlite.org/fts3.html), and the web application utilizes the [Flask](http://flask.pocoo.org) framework.
 
 Features:
 
@@ -13,7 +13,7 @@ Features:
 * Besides full-text search, perform complex filtering based on metadata values.
 * Comprehensive unit-tests.
 * Supports SQLite [FTS4](http://sqlite.org/fts3.html) and the brand-new [FTS5](http://sqlite.org/fts5.html).
-* [Documentation hosted on ReadTheDocs](http://scout.readthedocs.org/en/latest/).
+* [Documentation hosted on ReadTheDocs](https://scout.readthedocs.io/en/latest/).
 
 ## Installation
 
@@ -41,4 +41,4 @@ $ python setup.py install
 
 Using either of the above methods will also ensure the project's Python dependencies are installed: [flask](http://flask.pocoo.org) and [peewee](http://docs.peewee-orm.com).
 
-[Check out the documentation](http://scout.readthedocs.org/en/latest/) for more information about the project.
+[Check out the documentation](https://scout.readthedocs.io/en/latest/) for more information about the project.
