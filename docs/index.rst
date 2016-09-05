@@ -3,6 +3,9 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
+scout
+=====
+
 .. image:: http://media.charlesleifer.com/blog/photos/scout-logo.png
 
 **scout** is a RESTful search server written in Python with a focus on using
@@ -30,7 +33,7 @@ named in honor of the best dog ever,
 .. image:: http://media.charlesleifer.com/blog/photos/p1473037171.1.JPG
 
 Table of contents
-=================
+-----------------
 
 Contents:
 
