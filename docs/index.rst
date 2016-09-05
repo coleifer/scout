@@ -5,20 +5,25 @@
 
 .. image:: http://media.charlesleifer.com/blog/photos/scout-logo.png
 
-Scout is a RESTful search server written in Python. The search is powered by `SQLite's full-text search extension <http://sqlite.org/fts3.html>`_, and the web application utilizes the `Flask <http://flask.pocoo.org>`_ framework.
+**scout** is a RESTful search server written in Python with a focus on using
+lightweight components:
 
-Features:
+* search powered by `sqlite's full-text search extension <http://sqlite.org/fts3.html>`_
+* database access coordinated using `peewee ORM <http://docs.peewee-orm.com/>`_
+* web application built with `flask <http://flask.pocoo.org>`_ framework
 
-* Multiple search indexes present in a single database.
-* RESTful design for easy indexing and searching.
-* Simple key-based authentication (optional).
-* Lightweight, low resource utilization, minimal setup required.
-* Store search content and arbitrary metadata.
-* Attach files or BLOBs to indexed documents.
-* Multiple result ranking algorithms, porter stemmer.
-* Besides full-text search, perform complex filtering based on metadata values.
-* Comprehensive unit-tests.
-* Supports SQLite `FTS4 <http://sqlite.org/fts3.html>`_ and the brand-new `FTS5 <http://sqlite.org/fts5.html>`_.
+scout has the following features:
+
+* multiple search indexes present in a single database.
+* restful design for easy indexing and searching.
+* simple key-based authentication (optional).
+* lightweight, low resource utilization, minimal setup required.
+* store search content and arbitrary metadata.
+* attach files or BLOBs to indexed documents.
+* multiple result ranking algorithms, porter stemmer.
+* besides full-text search, perform complex filtering based on metadata values.
+* comprehensive unit-tests.
+* supports SQLite `FTS4 <http://sqlite.org/fts3.html>`_ and the brand-new `FTS5 <http://sqlite.org/fts5.html>`_.
 
 Contents:
 
