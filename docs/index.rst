@@ -25,6 +25,13 @@ scout has the following features:
 * comprehensive unit-tests.
 * supports SQLite `FTS4 <http://sqlite.org/fts3.html>`_ and the brand-new `FTS5 <http://sqlite.org/fts5.html>`_.
 
+named in honor of the best dog ever,
+
+.. image:: http://media.charlesleifer.com/blog/photos/p1473037171.1.JPG
+
+Table of contents
+=================
+
 Contents:
 
 .. toctree::
