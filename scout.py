@@ -860,9 +860,14 @@ class _FileProcessingView(ScoutView):
 
 class DocumentView(_FileProcessingView):
     def _get_document(self, pk):
-        return get_object_or_404(
-            Document.all(),
-            Document._meta.primary_key == pk)
+        if isinstance(pk, int):
+            try:
+                return get_object_or_404(
+                    Document.all(),
+                    Document._meta.primary_key == pk)
+            except Document.DoesNotExist:
+                pass
+        return get_object_or_404(Document.all(), Document.identifier == pk)
 
     def detail(self, pk):
         document = self._get_document(pk)
