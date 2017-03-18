@@ -16,6 +16,7 @@ import base64
 import datetime
 import hashlib
 import json
+import logging
 import mimetypes
 import operator
 import optparse
@@ -46,6 +47,7 @@ try:
 except ImportError:
     FTS5Model = None
 from werkzeug import secure_filename
+from werkzeug.exceptions import NotFound
 from werkzeug.serving import run_simple
 
 
@@ -54,6 +56,15 @@ if peewee_version < [2, 7, 0]:
     raise RuntimeError('Peewee version 2.7.1 or newer is required for this '
                        'version of Scout. Version found: %s.' %
                        peewee_version_raw)
+
+
+logger = logging.getLogger('scout')
+try:
+    from logging import NullHandler
+except ImportError:
+    class NullHandler(logging.Handler):
+        def emit(self, record): pass
+logger.addHandler(NullHandler())  # Prevent warnings about no handlers.
 
 
 AUTHENTICATION = None
@@ -572,6 +583,7 @@ def error(message, code=None):
     Trigger an Exception from a view that will short-circuit the Response
     cycle and return a 400 "Bad request" with the given error message.
     """
+    logger.error(message)
     raise InvalidRequestException(message, code=code)
 
 
@@ -662,9 +674,10 @@ def authenticate_request():
         api_key = None
         if request.headers.get('key'):
             api_key = request.headers['key']
-        elif request.args.get('key'):
+        if api_key is None and request.args.get('key'):
             api_key = request.args['key']
         if api_key != app.config['AUTHENTICATION']:
+            logger.info('Authentication failure for key: %s' % api_key)
             return False
     return True
 
@@ -819,6 +832,8 @@ class IndexView(ScoutView):
                 index = Index.create(name=data['name'])
             except IntegrityError:
                 error('"%s" already exists.' % data['name'])
+            else:
+                logger.info('Created new index "%s"' % index.name)
 
         return self.detail(index.name)
 
@@ -832,6 +847,8 @@ class IndexView(ScoutView):
                 index.save()
             except IntegrityError:
                 error('"%s" is already in use.' % index.name)
+            else:
+                logger.info('Updated index "%s"' % index.name)
 
         return self.detail(index.name)
 
@@ -839,36 +856,41 @@ class IndexView(ScoutView):
         index = get_object_or_404(Index, Index.name == pk)
 
         with database.atomic():
-            (IndexDocument
-             .delete()
-             .where(IndexDocument.index == index)
-             .execute())
+            ndocs = (IndexDocument
+                     .delete()
+                     .where(IndexDocument.index == index)
+                     .execute())
             index.delete_instance()
+
+        logger.info('Deleted index "%s" and unlinked %s associated documents.',
+                    index.name, ndocs)
 
         return jsonify({'success': True})
 
 
 class _FileProcessingView(ScoutView):
-    def attach_files(self, document):
-        attachments = []
-        for identifier in request.files:
-            file_obj = request.files[identifier]
-            attachments.append(
-                document.attach(file_obj.filename, file_obj.read()))
-        return attachments
-
-
-class DocumentView(_FileProcessingView):
     def _get_document(self, pk):
         if isinstance(pk, int):
             try:
                 return get_object_or_404(
                     Document.all(),
                     Document._meta.primary_key == pk)
-            except Document.DoesNotExist:
+            except NotFound:
                 pass
         return get_object_or_404(Document.all(), Document.identifier == pk)
 
+    def attach_files(self, document):
+        attachments = []
+        for identifier in request.files:
+            file_obj = request.files[identifier]
+            attachments.append(
+                document.attach(file_obj.filename, file_obj.read()))
+            logger.info('Attached %s to document id = %s',
+                        file_obj.filename, document.rowid)
+        return attachments
+
+
+class DocumentView(_FileProcessingView):
     def detail(self, pk):
         document = self._get_document(pk)
         return jsonify(document.serialize())
@@ -893,6 +915,14 @@ class DocumentView(_FileProcessingView):
         if indexes is None:
             error('You must specify either an "index" or "indexes".')
 
+        if data.get('identifier'):
+            try:
+                document = self._get_document(data['identifier'])
+            except NotFound:
+                pass
+            else:
+                return self.update(data['identifier'])
+
         document = Document.create(
             content=data['content'],
             identifier=data.get('identifier'))
@@ -900,8 +930,12 @@ class DocumentView(_FileProcessingView):
         if data.get('metadata'):
             document.metadata = data['metadata']
 
+        logger.info('Created document with id=%s', document.rowid)
+
         for index in indexes:
             index.add_to_index(document)
+            logger.info('Added document %s to index %s',
+                        document.rowid, index.name)
 
         if len(request.files):
             self.attach_files(document)
@@ -927,6 +961,10 @@ class DocumentView(_FileProcessingView):
 
         if save_document:
             document.save()
+            logger.info('Updated document with id = %s', document.rowid)
+        else:
+            logger.warning('No changes, aborting update of document id = %s',
+                           document.rowid)
 
         if 'metadata' in data:
             del document.metadata
@@ -965,16 +1003,12 @@ class DocumentView(_FileProcessingView):
              .execute())
             Metadata.delete().where(Metadata.document == document).execute()
             document.delete_instance()
+            logger.info('Deleted document with id = %s', document.rowid)
 
         return jsonify({'success': True})
 
 
 class AttachmentView(_FileProcessingView):
-    def _get_document(self, document_id):
-        return get_object_or_404(
-            Document.all(),
-            Document._meta.primary_key == document_id)
-
     def _get_attachment(self, document, pk):
         return get_object_or_404(
             document.attachments,
