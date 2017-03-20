@@ -88,6 +88,8 @@ app = Flask(__name__)
 app.config.from_object(__name__)
 if os.environ.get('SCOUT_SETTINGS'):
     app.config.from_envvar('SCOUT_SETTINGS')
+if os.environ.get('SCOUT_FTS_VERSION'):
+    app.config['SEARCH_EXTENSION'] = 'FTS%d' % os.environ['SCOUT_FTS_VERSION']
 
 database = SqliteExtDatabase(None, c_extensions=app.config['C_EXTENSIONS'])
 if app.config.get('DATABASE'):
