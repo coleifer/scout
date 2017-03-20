@@ -196,3 +196,64 @@ class Scout(object):
 
     def search_attachments(self, **kwargs):
         return self.get('/documents/attachments/', **kwargs)
+
+
+class SearchProvider(object):
+    def content(self, obj):
+        raise NotImplementedError
+
+    def identifier(self, obj):
+        raise NotImplementedError
+
+    def metadata(self, obj):
+        raise NotImplementedError
+
+
+class SearchSite(object):
+    def __init__(self, client, index):
+        self.client = client
+        self.index = index
+        self.registry = {}
+
+    def register(self, model_class, search_provider):
+        self.registry.setdefault(model_class, [])
+        self.registry[model_class].append(search_provider())
+
+    def unregister(self, model_class, search_provider=None):
+        if search_provider is None:
+            self.registry.pop(model_class, None)
+        elif model_class in self.registry:
+            self.registry[model_class] = [
+                sp for sp in self.registry[model_class]
+                if not isinstance(sp, search_provider)]
+
+    def store(self, obj):
+        if type(obj) not in self.registry:
+            return False
+
+        for provider in self.registry[type(obj)]:
+            content = provider.content(obj)
+            try:
+                metadata = provider.metadata(obj)
+            except NotImplementedError:
+                metadata = {}
+
+            try:
+                identifier = provider.identifier(obj)
+            except NotImplementedError:
+                pass
+            else:
+                metadata['identifier'] = identifier
+
+            self.client.create_document(content, self.index, **metadata)
+
+        return True
+
+    def remove(self, obj):
+        if type(obj) not in self.registry:
+            return False
+
+        for provider in self.registry[type(obj)]:
+            self.client.delete_document(self.identifier(obj))
+
+        return True
