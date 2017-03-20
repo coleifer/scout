@@ -870,12 +870,11 @@ class IndexView(ScoutView):
 
 class _FileProcessingView(ScoutView):
     def _get_document(self, pk):
-        if isinstance(pk, int):
+        if isinstance(pk, int) or (pk and pk.isdigit()):
+            query = Document.all().where(Document._meta.primary_key == pk)
             try:
-                return get_object_or_404(
-                    Document.all(),
-                    Document._meta.primary_key == pk)
-            except NotFound:
+                return query.get()
+            except Document.DoesNotExist:
                 pass
         return get_object_or_404(Document.all(), Document.identifier == pk)
 
@@ -886,7 +885,7 @@ class _FileProcessingView(ScoutView):
             attachments.append(
                 document.attach(file_obj.filename, file_obj.read()))
             logger.info('Attached %s to document id = %s',
-                        file_obj.filename, document.rowid)
+                        file_obj.filename, document.get_id())
         return attachments
 
 
@@ -930,12 +929,12 @@ class DocumentView(_FileProcessingView):
         if data.get('metadata'):
             document.metadata = data['metadata']
 
-        logger.info('Created document with id=%s', document.rowid)
+        logger.info('Created document with id=%s', document.get_id())
 
         for index in indexes:
             index.add_to_index(document)
             logger.info('Added document %s to index %s',
-                        document.rowid, index.name)
+                        document.get_id(), index.name)
 
         if len(request.files):
             self.attach_files(document)
@@ -961,10 +960,10 @@ class DocumentView(_FileProcessingView):
 
         if save_document:
             document.save()
-            logger.info('Updated document with id = %s', document.rowid)
+            logger.info('Updated document with id = %s', document.get_id())
         else:
             logger.warning('No changes, aborting update of document id = %s',
-                           document.rowid)
+                           document.get_id())
 
         if 'metadata' in data:
             del document.metadata
@@ -1003,7 +1002,7 @@ class DocumentView(_FileProcessingView):
              .execute())
             Metadata.delete().where(Metadata.document == document).execute()
             document.delete_instance()
-            logger.info('Deleted document with id = %s', document.rowid)
+            logger.info('Deleted document with id = %s', document.get_id())
 
         return jsonify({'success': True})
 
