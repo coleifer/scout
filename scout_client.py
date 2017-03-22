@@ -254,6 +254,6 @@ class SearchSite(object):
             return False
 
         for provider in self.registry[type(obj)]:
-            self.client.delete_document(self.identifier(obj))
+            self.client.delete_document(provider.identifier(obj))
 
         return True
