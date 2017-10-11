@@ -138,6 +138,9 @@ class Document(FTSBaseModel):
         db_table = 'main_document'
         extension_options = options = ModelOptions
 
+    def get_id(self):
+        return getattr(self, Document._meta.primary_key)
+
     @classmethod
     def all(cls):
         # Explicitly select the docid/rowid. Since it is a virtual field, it
