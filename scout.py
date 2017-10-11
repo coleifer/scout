@@ -139,7 +139,7 @@ class Document(FTSBaseModel):
         extension_options = options = ModelOptions
 
     def get_id(self):
-        return getattr(self, Document._meta.primary_key)
+        return getattr(self, Document._meta.primary_key.name)
 
     @classmethod
     def all(cls):
