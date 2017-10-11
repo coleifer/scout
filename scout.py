@@ -823,7 +823,7 @@ class IndexView(ScoutView):
                  .select(
                      Index,
                      fn.COUNT(IndexDocument.id).alias('document_count'))
-                 .join(IndexDocument, JOIN_LEFT_OUTER)
+                 .join(IndexDocument, JOIN.LEFT_OUTER)
                  .group_by(Index))
 
         ordering = request.args.getlist('ordering')
