@@ -239,7 +239,11 @@ class Document(FTSBaseModel):
             sort_default = 'score'
 
             # Add score to the selected columns.
-            query = query.select(*query._select + [rank.alias('score')])
+            if peewee_version[0] < 3:
+                selection = query._select
+            else:
+                selection = query._returning
+            query = query.select(*selection + [rank.alias('score')])
         else:
             sort_default = 'id'
 
@@ -333,10 +337,10 @@ class Document(FTSBaseModel):
         if prefetched:
             data['metadata'] = dict(
                 (metadata.key, metadata.value)
-                for metadata in self.metadata_set_prefetch)
+                for metadata in self.metadata_set)
             data['indexes'] = [
                 idx_doc.index.name
-                for idx_doc in self.indexdocument_set_prefetch]
+                for idx_doc in self.indexdocument_set]
         else:
             data['metadata'] = self.metadata
             indexes = (Index
@@ -433,7 +437,11 @@ class Attachment(BaseModel):
             sort_default = 'score'
 
             # Add score to the selected columns.
-            query = query.select(*query._select + [rank.alias('score')])
+            if peewee_version[0] < 3:
+                selection = query._select
+            else:
+                selection = query._returning
+            query = query.select(*selection + [rank.alias('score')])
         else:
             sort_default = 'filename'
 
