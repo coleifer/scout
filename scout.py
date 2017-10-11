@@ -40,8 +40,10 @@ from playhouse.fields import CompressedField
 from playhouse.flask_utils import get_object_or_404
 from playhouse.flask_utils import PaginatedQuery
 from playhouse.sqlite_ext import *
-from playhouse.sqlite_ext import FTS_VER
-from playhouse.sqlite_ext import _VirtualFieldMixin
+try:
+    from playhouse.sqlite_ext import FTS_VER
+except ImportError:
+    from playhouse.sqlite_ext import FTS_VERSION as FTS_VER
 try:
     from playhouse.sqlite_ext import FTS5Model
 except ImportError:
@@ -1196,8 +1198,12 @@ def main():
 
 def initialize_database(database_file):
     database.init(database_file)
+    try:
+        meth = database.execution_context
+    except AttributeError:
+        meth = database
 
-    with database.execution_context():
+    with meth:
         database.create_tables([
             Attachment,
             BlobData,
