@@ -260,8 +260,8 @@ class TestModelAPIs(BaseTestCase):
         # Verify through relationship properties.
         self.assertEqual(IndexDocument.select().count(), 1)
         idx_doc = IndexDocument.get()
-        self.assertEqual(idx_doc._data['document'], doc.get_id())
-        self.assertEqual(idx_doc._data['index'], self.index.id)
+        self.assertEqual(idx_doc.__data__['document'], doc.get_id())
+        self.assertEqual(idx_doc.__data__['index'], self.index.id)
 
     def test_index_with_metadata(self):
         """
@@ -303,8 +303,8 @@ class TestModelAPIs(BaseTestCase):
         # Verify through relationship properties.
         self.assertEqual(IndexDocument.select().count(), 1)
         idx_doc = IndexDocument.get()
-        self.assertEqual(idx_doc._data['document'], u_doc_db.get_id())
-        self.assertEqual(idx_doc._data['index'], self.index.id)
+        self.assertEqual(idx_doc.__data__['document'], u_doc_db.get_id())
+        self.assertEqual(idx_doc.__data__['index'], self.index.id)
 
     def test_multi_index(self):
         """

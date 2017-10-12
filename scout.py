@@ -93,7 +93,14 @@ if os.environ.get('SCOUT_SETTINGS'):
 if os.environ.get('SCOUT_FTS_VERSION'):
     app.config['SEARCH_EXTENSION'] = 'FTS%s' % os.environ['SCOUT_FTS_VERSION']
 
-database = SqliteExtDatabase(None, c_extensions=app.config['C_EXTENSIONS'])
+if peewee_version[0] == 3:
+    kwargs = {'regexp_function': True}
+    backref = lambda s: {'backref': s}
+else:
+    kwargs = {}
+    backref = lambda s: {'related_name': s}
+database = SqliteExtDatabase(None, c_extensions=app.config['C_EXTENSIONS'],
+                             **kwargs)
 if app.config.get('DATABASE'):
     database.init(app.config['DATABASE'])
 
@@ -378,7 +385,7 @@ class Attachment(BaseModel):
     """
     A mapping of a BLOB to a Document.
     """
-    document = ForeignKeyField(Document, related_name='attachments')
+    document = ForeignKeyField(Document, **backref('attachments'))
     hash = CharField()
     filename = CharField(index=True)
     mimetype = CharField()
@@ -478,7 +485,7 @@ class Metadata(BaseModel):
     metadata associated with a document can also be used to filter search
     results.
     """
-    document = ForeignKeyField(Document, related_name='metadata_set')
+    document = ForeignKeyField(Document, **backref('metadata_set'))
     key = CharField()
     value = TextField()
 
