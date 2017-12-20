@@ -1,11 +1,23 @@
 import base64
 import json
-import mimetools
+try:
+    from email.generator import _make_boundary as choose_boundary
+except ImportError:
+    from mimetools import choose_boundary
 import mimetypes
 import os
-import urllib
-import urllib2
-import urlparse
+try:
+    from urllib.parse import urlencode
+    from urllib.parse import urljoin
+except ImportError:
+    from urllib import urlencode
+    from urlparse import urljoin
+try:
+    from urllib.request import Request
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import Request
+    from urllib2 import urlopen
 import zlib
 
 
@@ -19,7 +31,7 @@ class Scout(object):
         self.key = key
 
     def get_full_url(self, url):
-        return urlparse.urljoin(self.endpoint, url)
+        return urljoin(self.endpoint, url)
 
     def get_raw(self, url, **kwargs):
         headers = {'Content-Type': 'application/json'}
@@ -28,9 +40,9 @@ class Scout(object):
         if kwargs:
             if '?' not in url:
                 url += '?'
-            url += urllib.urlencode(kwargs, True)
-        request = urllib2.Request(self.get_full_url(url), headers=headers)
-        fh = urllib2.urlopen(request)
+            url += urlencode(kwargs, True)
+        request = Request(self.get_full_url(url), headers=headers)
+        fh = urlopen(request)
         return fh.read()
 
     def get(self, url, **kwargs):
@@ -46,11 +58,11 @@ class Scout(object):
         headers = {'Content-Type': 'application/json'}
         if self.key:
             headers['key'] = self.key
-        request = urllib2.Request(
+        request = Request(
             self.get_full_url(url),
             data=json.dumps(data or {}),
             headers=headers)
-        fh = urllib2.urlopen(request)
+        fh = urlopen(request)
         return json.loads(fh.read())
 
     def post_files(self, url, json_data, files=None):
@@ -58,7 +70,7 @@ class Scout(object):
             raise ValueError('One or more files is required. Files should be '
                              'passed as a dictionary of filename: file-like-'
                              'object.')
-        boundary = mimetools.choose_boundary()
+        boundary = choose_boundary()
         form_files = []
         for i, (filename, file_obj) in enumerate(files.items()):
             try:
@@ -93,20 +105,20 @@ class Scout(object):
                    boundary}
         if self.key:
             headers['key'] = self.key
-        request = urllib2.Request(
+        request = Request(
             self.get_full_url(url),
             data='\r\n'.join(parts),
             headers=headers)
-        fh = urllib2.urlopen(request)
+        fh = urlopen(request)
         return json.loads(fh.read())
 
     def delete(self, url):
         headers = {}
         if self.key:
             headers['key'] = self.key
-        request = urllib2.Request(self.get_full_url(url), headers=headers)
+        request = Request(self.get_full_url(url), headers=headers)
         request.get_method = lambda: 'DELETE'
-        fh = urllib2.urlopen(request)
+        fh = urlopen(request)
         return json.loads(fh.read())
 
     def get_indexes(self, **kwargs):
