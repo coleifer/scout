@@ -58,12 +58,11 @@ class Scout(object):
         headers = {'Content-Type': 'application/json'}
         if self.key:
             headers['key'] = self.key
-        request = Request(
-            self.get_full_url(url),
-            data=json.dumps(data or {}),
-            headers=headers)
-        fh = urlopen(request)
-        return json.loads(fh.read())
+        data = json.dumps(data or {})
+        if not isinstance(data, bytes):
+            data = data.encode('utf-8')
+        request = Request(self.get_full_url(url), data=data, headers=headers)
+        return json.loads(urlopen(request).read())
 
     def post_files(self, url, json_data, files=None):
         if not files or not isinstance(files, dict):
@@ -105,12 +104,13 @@ class Scout(object):
                    boundary}
         if self.key:
             headers['key'] = self.key
-        request = Request(
-            self.get_full_url(url),
-            data='\r\n'.join(parts),
-            headers=headers)
-        fh = urlopen(request)
-        return json.loads(fh.read())
+
+        data = '\r\n'.join(parts)
+        if not isinstance(data, bytes):
+            data = data.encode('utf-8')
+
+        request = Request(self.get_full_url(url), data=data, headers=headers)
+        return json.loads(urlopen(request).read())
 
     def delete(self, url):
         headers = {}
