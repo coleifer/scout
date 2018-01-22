@@ -1,4 +1,72 @@
+from functools import wraps
+import json
+
+from flask import abort
+from flask import Flask
+from flask import jsonify
+from flask import make_response
+from flask import request
+from flask import Response
+from flask import url_for
+from flask.views import MethodView
+from peewee import *
+from playhouse.flask_utils import get_object_or_404
+from playhouse.flask_utils import PaginatedQuery
+
+from .constants import PROTECTED_KEYS
+from .constants import RANKING_CHOICES
+from .constants import SEARCH_BM25
+from .exceptions import error
+from .models import database
+from .models import Attachment
+from .models import BlobData
+from .models import Document
+from .models import Index
+from .models import IndexDocument
+from .models import Metadata
+from .search import DocumentSearch
+from .serializers import AttachmentSerializer
+from .serializers import DocumentSerializer
+from .serializers import IndexSerializer
+
+
+engine = DocumentSearch()
+
+
+def register_views(app):
+    # Register views and request handlers.
+    IndexView.register(app, 'index_view', '/')
+    DocumentView.register(app, 'document_view', '/documents/')
+    AttachmentView.register(app, 'attachment_view',
+                            '/documents/<document_id>/attachments/', 'path')
+    app.add_url_rule(
+        '/documents/<document_id>/attachments/<path:pk>/download/',
+        view_func=authentication(app)(attachment_download))
+
+
+def authentication(app):
+    def decorator(fn):
+        api_key = app.config.get('AUTHENTICATION')
+        if not api_key:
+            return fn
+
+        @wraps(fn)
+        def inner(*args, **kwargs):
+            # Check headers and request.args for `key=<key>`.
+            key = request.headers.get('key') or request.args.get('key')
+            if key != api_key:
+                logger.info('Authentication failure for key: %s', key)
+                return 'Invalid API key', 401
+            else:
+                return fn(*args, **kwargs)
+        return inner
+    return decorator
+
+
 class RequestValidator(object):
+    def __init__(self, api_key=None):
+        self.api_key = api_key
+
     def parse_post(self, required_keys=None, optional_keys=None):
         """
         Clean and validate POSTed JSON data by defining sets of required and
@@ -59,28 +127,11 @@ class RequestValidator(object):
 
         return indexes
 
-
-def authenticate_request():
-    if app.config['AUTHENTICATION']:
-        # Check headers and request.args for `key=<key>`.
-        api_key = None
-        if request.headers.get('key'):
-            api_key = request.headers['key']
-        if api_key is None and request.args.get('key'):
-            api_key = request.args['key']
-        if api_key != app.config['AUTHENTICATION']:
-            logger.info('Authentication failure for key: %s' % api_key)
-            return False
-    return True
-
-
-def protect_view(fn):
-    @wraps(fn)
-    def inner(*args, **kwargs):
-        if not authenticate_request():
-            return 'Invalid API key', 401
-        return fn(*args, **kwargs)
-    return inner
+    def extract_get_params():
+        return dict(
+            (key, request.args.getlist(key))
+            for key in request.args
+            if key not in PROTECTED_KEYS)
 
 
 class ScoutView(MethodView):
@@ -88,14 +139,9 @@ class ScoutView(MethodView):
         self.validator = RequestValidator()
         super(ScoutView, self).__init__(*args, **kwargs)
 
-    def dispatch_request(self, *args, **kwargs):
-        if not authenticate_request():
-            return 'Invalid API key', 401
-        return super(ScoutView, self).dispatch_request(*args, **kwargs)
-
     @classmethod
     def register(cls, app, name, url, pk_type=None):
-        view_func = cls.as_view(name)
+        view_func = authentication(app)(cls.as_view(name))
         # Add GET on index view.
         app.add_url_rule(url, name, defaults={'pk': None}, view_func=view_func,
                          methods=['GET'])
@@ -112,14 +158,12 @@ class ScoutView(MethodView):
         app.add_url_rule(detail_url, name, view_func=view_func,
                          methods=['GET', 'PUT', 'POST', 'DELETE'])
 
-    def paginated_query(self, query, paginate_by=None):
-        if paginate_by is None:
-            paginate_by = app.config['PAGINATE_BY']
+        cls.paginate_by = app.config.get('PAGINATE_BY') or 50
 
+    def paginated_query(self, query, paginate_by=None):
         return PaginatedQuery(
             query,
-            paginate_by=paginate_by,
-            page_var=app.config['PAGE_VAR'],
+            paginate_by=paginate_by or self.paginate_by,
             check_bounds=False)
 
     def get(self, **kwargs):
@@ -153,17 +197,20 @@ class ScoutView(MethodView):
         raise NotImplementedError
 
     def _search_response(self, index, allow_blank, document_count):
-        ranking, _ = validate_ranking()
+        ranking = request.args.get('ranking') or SEARCH_BM25
+        if ranking not in RANKING_CHOICES:
+            error('Unrecognized "ranking" value. Valid options are %s' %
+                  ', '.join(RANKING_CHOICES))
+
         ordering = request.args.getlist('ordering')
-        filters = extract_metadata_filters()
+        filters = self.validator.extract_get_params()
 
         q = request.args.get('q', '').strip()
         if not q and not allow_blank:
             error('Search term is required.')
 
-        query = Document.search(q or '*', index, ranking, ordering,
-                                force_star_all=True if not q else False,
-                                **filters)
+        query = engine.search(q or '*', index, ranking, ordering,
+                              star_all=True if not q else False, **filters)
         pq = self.paginated_query(query)
 
         response = {
@@ -204,7 +251,7 @@ class IndexView(ScoutView):
                  .group_by(Index))
 
         ordering = request.args.getlist('ordering')
-        query = apply_sorting(query, ordering, {
+        query = engine.apply_sorting(query, ordering, {
             'name': Index.name,
             'document_count': SQL('document_count'),
             'id': Index.id}, 'name')
@@ -464,13 +511,6 @@ class AttachmentView(_FileProcessingView):
         return jsonify({'success': True})
 
 
-IndexView.register(app, 'index_view', '/')
-DocumentView.register(app, 'document_view', '/documents/')
-AttachmentView.register(app, 'attachment_view', '/documents/<document_id>/attachments/', 'path')
-
-
-@app.route('/documents/<document_id>/attachments/<path:pk>/download/')
-@protect_view
 def attachment_download(document_id, pk):
     document = get_object_or_404(
         Document.all(),
@@ -487,83 +527,3 @@ def attachment_download(document_id, pk):
         attachment.filename)
 
     return response
-
-
-@app.route('/documents/attachments/')
-@protect_view
-def attachment_search():
-    """
-    Search the index for attachments matching the given query.
-    """
-    phrase = request.args.get('q', '') or None
-    ranking, _ = validate_ranking()
-    ordering = request.args.getlist('ordering')
-    filters = extract_metadata_filters()
-
-    # Allow filtering by index.
-    idx_list = request.args.getlist('index')
-    if idx_list:
-        indexes = Index.select(Index.id).where(Index.name << idx_list)
-    else:
-        indexes = None
-
-    query = Attachment.search(
-        phrase or '*',
-        indexes,
-        ranking if phrase else None,
-        ordering,
-        force_star_all=True if not phrase else False,
-        **filters)
-    pq = PaginatedQuery(
-        query.naive(),
-        paginate_by=app.config['PAGINATE_BY'],
-        page_var=app.config['PAGE_VAR'],
-        check_bounds=False)
-
-    response = []
-    for attachment in pq.get_object_list():
-        data = {
-            'document_id': attachment.document_id,
-            'filename': attachment.filename,
-            'hash': attachment.hash,
-            'id': attachment.id,
-            'identifier': attachment.identifier,
-            'mimetype': attachment.mimetype,
-            'timestamp': attachment.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-        }
-        if phrase:
-            data['score'] = attachment.score
-
-        url_params = {
-            'document_id': data['document_id'],
-            'pk': data['filename']}
-        if app.config['AUTHENTICATION']:
-            url_params['key'] = app.config['AUTHENTICATION']
-        data['data'] = url_for('attachment_download', **url_params)
-        response.append(data)
-
-    return jsonify({
-        'attachment_count': Attachment.select().count(),
-        'attachments': response,
-        'filters': filters,
-        'ordering': ordering,
-        'page': pq.get_page(),
-        'pages': pq.get_page_count(),
-        'ranking': ranking,
-        'search_term': phrase,
-    })
-
-
-@app.errorhandler(InvalidRequestException)
-def _handle_invalid_request(exc):
-    return exc.response()
-
-@app.before_request
-def _connect_database():
-    if database.database != ':memory:':
-        database.connect()
-
-@app.teardown_request
-def _close_database(exc):
-    if database.database != ':memory:' and not database.is_closed():
-        database.close()
