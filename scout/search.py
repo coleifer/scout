@@ -93,9 +93,9 @@ class DocumentSearch(object):
 
     def apply_rank_and_sort(self, query, ranking, ordering):
         sort_options = {
-            'content': cls.content,
-            'id': cls.docid,
-            'identifier': cls.identifier,
+            'content': Document.content,
+            'id': Document.docid,
+            'identifier': Document.identifier,
         }
         if ranking is not None:
             rank = self.get_rank_expression(ranking)

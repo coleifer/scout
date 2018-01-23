@@ -1,4 +1,11 @@
 from flask import url_for
+from peewee import prefetch
+
+from scout.models import Attachment
+from scout.models import Document
+from scout.models import Index
+from scout.models import IndexDocument
+from scout.models import Metadata
 
 
 class Serializer(object):
@@ -50,7 +57,7 @@ class DocumentSerializer(object):
     def serialize_query(self, query, include_score=False):
         documents = prefetch(
             query,
-            Attachments,
+            Attachment,
             Metadata,
             IndexDocument,
             Index)

@@ -1,3 +1,6 @@
+from flask import jsonify
+
+
 class InvalidSearchException(ValueError): pass
 
 

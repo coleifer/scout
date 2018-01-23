@@ -34,6 +34,11 @@ class Document(FTSModel):
         options = {'tokenize': 'porter unicode61'}
         table_name = 'main_document'
 
+    @classmethod
+    def all(cls):
+        return Document.select(Document.docid, Document.content,
+                               Document.identifier)
+
     def get_metadata(self):
         return dict(Metadata
                     .select(Metadata.key, Metadata.value)
@@ -188,7 +193,7 @@ class Index(BaseModel):
     @property
     def documents(self):
         return (Document
-                .select()
+                .all()
                 .join(IndexDocument)
                 .where(IndexDocument.index == self))
 

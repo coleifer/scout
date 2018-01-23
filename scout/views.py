@@ -1,5 +1,6 @@
 from functools import wraps
 import json
+import logging
 
 from flask import abort
 from flask import Flask
@@ -12,25 +13,34 @@ from flask.views import MethodView
 from peewee import *
 from playhouse.flask_utils import get_object_or_404
 from playhouse.flask_utils import PaginatedQuery
+from werkzeug.exceptions import NotFound
 
-from .constants import PROTECTED_KEYS
-from .constants import RANKING_CHOICES
-from .constants import SEARCH_BM25
-from .exceptions import error
-from .models import database
-from .models import Attachment
-from .models import BlobData
-from .models import Document
-from .models import Index
-from .models import IndexDocument
-from .models import Metadata
-from .search import DocumentSearch
-from .serializers import AttachmentSerializer
-from .serializers import DocumentSerializer
-from .serializers import IndexSerializer
+from scout.constants import PROTECTED_KEYS
+from scout.constants import RANKING_CHOICES
+from scout.constants import SEARCH_BM25
+from scout.exceptions import error
+from scout.models import database
+from scout.models import Attachment
+from scout.models import BlobData
+from scout.models import Document
+from scout.models import Index
+from scout.models import IndexDocument
+from scout.models import Metadata
+from scout.search import DocumentSearch
+from scout.serializers import AttachmentSerializer
+from scout.serializers import DocumentSerializer
+from scout.serializers import IndexSerializer
+from scout.validator import RequestValidator
 
+
+attachment_serializer = AttachmentSerializer()
+document_serializer = DocumentSerializer()
+index_serializer = IndexSerializer()
 
 engine = DocumentSearch()
+validator = RequestValidator()
+
+logger = logging.getLogger('scout')
 
 
 def register_views(app):
@@ -63,82 +73,7 @@ def authentication(app):
     return decorator
 
 
-class RequestValidator(object):
-    def __init__(self, api_key=None):
-        self.api_key = api_key
-
-    def parse_post(self, required_keys=None, optional_keys=None):
-        """
-        Clean and validate POSTed JSON data by defining sets of required and
-        optional keys.
-        """
-        if request.headers.get('content-type') == 'application/json':
-            data = request.data
-        elif 'data' not in request.form:
-            error('Missing correct content-type or missing "data" field.')
-        else:
-            data = request.form['data']
-
-        if data:
-            try:
-                data = json.loads(data)
-            except ValueError:
-                error('Unable to parse JSON data from request.')
-        else:
-            data = {}
-
-        required = set(required_keys or ())
-        optional = set(optional_keys or ())
-        all_keys = required | optional
-        keys_present = set(key for key in data if data[key] not in ('', None))
-
-        missing = required - keys_present
-        if missing:
-            error('Missing required fields: %s' % ', '.join(sorted(missing)))
-
-        invalid_keys = keys_present - all_keys
-        if invalid_keys:
-            error('Invalid keys: %s' % ', '.join(sorted(invalid_keys)))
-
-        return data
-
-    def validate_indexes(self, data, required=True):
-        if data.get('index'):
-            index_names = (data['index'],)
-        elif data.get('indexes'):
-            index_names = data['indexes']
-        elif ('index' in data or 'indexes' in data) and not required:
-            return ()
-        else:
-            return None
-
-        indexes = list(Index.select().where(Index.name << index_names))
-
-        # Validate that all the index names exist.
-        observed_names = set(index.name for index in indexes)
-        invalid_names = []
-        for index_name in index_names:
-            if index_name not in observed_names:
-                invalid_names.append(index_name)
-
-        if invalid_names:
-            error('The following indexes were not found: %s.' %
-                  ', '.join(invalid_names))
-
-        return indexes
-
-    def extract_get_params():
-        return dict(
-            (key, request.args.getlist(key))
-            for key in request.args
-            if key not in PROTECTED_KEYS)
-
-
 class ScoutView(MethodView):
-    def __init__(self, *args, **kwargs):
-        self.validator = RequestValidator()
-        super(ScoutView, self).__init__(*args, **kwargs)
-
     @classmethod
     def register(cls, app, name, url, pk_type=None):
         view_func = authentication(app)(cls.as_view(name))
@@ -203,7 +138,7 @@ class ScoutView(MethodView):
                   ', '.join(RANKING_CHOICES))
 
         ordering = request.args.getlist('ordering')
-        filters = self.validator.extract_get_params()
+        filters = validator.extract_get_params()
 
         q = request.args.get('q', '').strip()
         if not q and not allow_blank:
@@ -215,7 +150,7 @@ class ScoutView(MethodView):
 
         response = {
             'document_count': document_count,
-            'documents': Document.serialize_query(
+            'documents': document_serializer.serialize_query(
                 pq.get_object_list(),
                 include_score=True if q else False),
             'filtered_count': query.count(),
@@ -235,6 +170,8 @@ class ScoutView(MethodView):
 #
 
 class IndexView(ScoutView):
+    serializer_class = IndexSerializer
+
     def detail(self, pk):
         index = get_object_or_404(Index, Index.name == pk)
         document_count = index.documents.count()
@@ -258,13 +195,14 @@ class IndexView(ScoutView):
 
         pq = self.paginated_query(query)
         return jsonify({
-            'indexes': [index.serialize() for index in pq.get_object_list()],
+            'indexes': [index_serializer.serialize(index)
+                        for index in pq.get_object_list()],
             'ordering': ordering,
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
     def create(self):
-        data = self.validator.parse_post(['name'])
+        data = validator.parse_post(['name'])
 
         with database.atomic():
             try:
@@ -278,7 +216,7 @@ class IndexView(ScoutView):
 
     def update(self, pk):
         index = get_object_or_404(Index, Index.name == pk)
-        data = self.validator.parse_post(['name'])
+        data = validator.parse_post(['name'])
         index.name = data['name']
 
         with database.atomic():
@@ -329,9 +267,11 @@ class _FileProcessingView(ScoutView):
 
 
 class DocumentView(_FileProcessingView):
+    serializer_class = DocumentSerializer
+
     def detail(self, pk):
         document = self._get_document(pk)
-        return jsonify(document.serialize())
+        return jsonify(document_serializer.serialize(document))
 
     def list_view(self):
         # Allow filtering by index.
@@ -345,11 +285,11 @@ class DocumentView(_FileProcessingView):
         return jsonify(self._search_response(indexes, True, document_count))
 
     def create(self):
-        data = self.validator.parse_post(
+        data = validator.parse_post(
             ['content'],
             ['identifier', 'index', 'indexes', 'metadata'])
 
-        indexes = self.validator.validate_indexes(data)
+        indexes = validator.validate_indexes(data)
         if indexes is None:
             error('You must specify either an "index" or "indexes".')
 
@@ -382,7 +322,7 @@ class DocumentView(_FileProcessingView):
 
     def update(self, pk):
         document = self._get_document(pk)
-        data = self.validator.parse_post([], [
+        data = validator.parse_post([], [
             'content',
             'identifier',
             'index',
@@ -412,7 +352,7 @@ class DocumentView(_FileProcessingView):
         if len(request.files):
             self.attach_files(document)
 
-        indexes = self.validator.validate_indexes(data, required=False)
+        indexes = validator.validate_indexes(data, required=False)
         if indexes is not None:
             with database.atomic():
                 (IndexDocument
@@ -447,6 +387,8 @@ class DocumentView(_FileProcessingView):
 
 
 class AttachmentView(_FileProcessingView):
+    serializer_class = AttachmentSerializer
+
     def _get_attachment(self, document, pk):
         return get_object_or_404(
             document.attachments,
@@ -455,7 +397,7 @@ class AttachmentView(_FileProcessingView):
     def detail(self, document_id, pk):
         document = self._get_document(document_id)
         attachment = self._get_attachment(document, pk)
-        return jsonify(attachment.serialize())
+        return jsonify(attachment_serializer.serialize(attachment))
 
     def list_view(self, document_id):
         document = self._get_document(document_id)
@@ -471,14 +413,15 @@ class AttachmentView(_FileProcessingView):
 
         pq = self.paginated_query(query)
         return jsonify({
-            'attachments': [a.serialize() for a in pq.get_object_list()],
+            'attachments': [attachment_serializer.serialize(attachment)
+                            for attachment in pq.get_object_list()],
             'ordering': ordering,
             'page': pq.get_page(),
             'pages': pq.get_page_count()})
 
     def create(self, document_id):
         document = self._get_document(document_id)
-        self.validator.parse_post([], [])  # Ensure POST data is clean.
+        validator.parse_post([], [])  # Ensure POST data is clean.
 
         if len(request.files):
             attachments = self.attach_files(document)
@@ -486,12 +429,13 @@ class AttachmentView(_FileProcessingView):
             error('No file attachments found.')
 
         return jsonify({'attachments': [
-            attachment.serialize() for attachment in attachments]})
+            attachment_serializer.serialize(attachment)
+            for attachment in attachments]})
 
     def update(self, document_id, pk):
         document = self._get_document(document_id)
         attachment = self._get_attachment(document, pk)
-        self.validator.parse_post([], [])  # Ensure POST data is clean.
+        validator.parse_post([], [])  # Ensure POST data is clean.
 
         nfiles = len(request.files)
         if nfiles == 1:

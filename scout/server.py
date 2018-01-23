@@ -1,20 +1,23 @@
+import logging
 import optparse
 import os
 import sys
 
 from flask import Flask
-from werkzeug.exceptions import NotFound
 from werkzeug.serving import run_simple
 
-from .exceptions import InvalidRequestException
-from .models import database
-from .models import Attachment
-from .models import BlobData
-from .models import Document
-from .models import Index
-from .models import IndexDocument
-from .models import Metadata
-from .views import register_views
+from scout.exceptions import InvalidRequestException
+from scout.models import database
+from scout.models import Attachment
+from scout.models import BlobData
+from scout.models import Document
+from scout.models import Index
+from scout.models import IndexDocument
+from scout.models import Metadata
+from scout.views import register_views
+
+
+logger = logging.getLogger('scout')
 
 
 def create_server(config=None, config_file=None):
@@ -25,8 +28,7 @@ def create_server(config=None, config_file=None):
         app.config.from_pyfile(config_file)
 
     # (Re-)Configure application using command-line switches/environment flags.
-    if config is not None:
-        app.config.from_object(config)
+    app.config.update(config)
 
     # Initialize the SQLite database.
     initialize_database(app.config.get('DATABASE') or 'scout.db',
@@ -89,11 +91,13 @@ def get_option_parser():
     parser.add_option(
         '-H',
         '--host',
+        default='127.0.0.1',
         dest='host',
         help='The hostname to listen on. Defaults to 127.0.0.1.')
     parser.add_option(
         '-p',
         '--port',
+        default=8000,
         dest='port',
         help='The port to listen on. Defaults to 8000.',
         type='int')
@@ -149,11 +153,20 @@ def get_option_parser():
         default='wal',
         dest='journal_mode',
         help='SQLite journal mode. Defaults to WAL (recommended).')
+    parser.add_option(
+        '-l',
+        '--logfile',
+        dest='logfile',
+        help='Log file')
     return parser
 
 def parse_options():
     option_parser = get_option_parser()
     options, args = option_parser.parse_args()
+
+    if options.logfile:
+        handler = logging.FileHandler(options.logfile)
+        logger.addHandler(handler)
 
     config_file = os.environ.get('SCOUT_CONFIG') or options.config
     config = {'DATABASE': os.environ.get('SCOUT_DATABASE')}
@@ -180,10 +193,8 @@ def parse_options():
         config['AUTHENTICATION'] = options.api_key
     if options.debug:
         config['DEBUG'] = True
-    if options.host:
-        config['HOST'] = options.host
-    if options.port:
-        config['PORT'] = options.port
+    config['HOST'] = options.host or '127.0.0.1'
+    config['PORT'] = options.port or 8000
     if options.paginate_by:
         if options.paginate_by < 1 or options.paginate_by > 1000:
             panic('paginate-by must be between 1 and 1000')
