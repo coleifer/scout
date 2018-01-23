@@ -1,3 +1,5 @@
+import operator
+
 from flask import url_for
 from peewee import prefetch
 
@@ -24,17 +26,19 @@ class DocumentSerializer(object):
             'content': document.content,
         }
 
+        _filename = operator.attrgetter('filename')
+        data['attachments'] = [{
+            'filename': attachment.filename,
+            'mimetype': attachment.mimetype,
+            'timestamp': str(attachment.timestamp),
+            'data_length': attachment.length,
+            'data': url_for(
+                'attachment_download',
+                document_id=document.docid,
+                pk=attachment.filename)}
+            for attachment in sorted(document.attachments, key=_filename)]
+
         if prefetched:
-            data['attachments'] = [{
-                'filename': attachment.filename,
-                'mimetype': attachment.mimetype,
-                'timestamp': str(attachment.timestamp),
-                'data_length': attachment.length,
-                'data': url_for(
-                    'attachment_download',
-                    document_id=document.docid,
-                    pk=attachment.filename)}
-                for attachment in document.attachments]
             data['metadata'] = dict((metadata.key, metadata.value)
                                     for metadata in document.metadata_set)
             data['indexes'] = [idx_doc.index.name

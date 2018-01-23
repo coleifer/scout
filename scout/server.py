@@ -28,7 +28,8 @@ def create_server(config=None, config_file=None):
         app.config.from_pyfile(config_file)
 
     # (Re-)Configure application using command-line switches/environment flags.
-    app.config.update(config)
+    if config is not None:
+        app.config.update(config)
 
     # Initialize the SQLite database.
     initialize_database(app.config.get('DATABASE') or 'scout.db',
@@ -129,12 +130,6 @@ def get_option_parser():
         dest='api_key',
         help='Set the API key required to access Scout.')
     parser.add_option(
-        '-a',
-        '--star-all',
-        action='store_true',
-        dest='star_all',
-        help='Search query "*" returns all records')
-    parser.add_option(
         '-C',
         '--cache-size',
         default=64,
@@ -199,8 +194,6 @@ def parse_options():
         if options.paginate_by < 1 or options.paginate_by > 1000:
             panic('paginate-by must be between 1 and 1000')
         config['PAGINATE_BY'] = options.paginate_by
-    if options.star_all:
-        config['STAR_ALL'] = True
     if options.stem:
         if options.stem not in ('simple', 'porter'):
             panic('Unrecognized stemmer. Must be "porter" or "simple".')

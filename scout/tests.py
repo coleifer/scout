@@ -8,17 +8,26 @@ from StringIO import StringIO
 from playhouse.sqlite_ext import *
 from playhouse.test_utils import assert_query_count
 
-from scout import app
-from scout import Attachment
-from scout import BlobData
-from scout import database
-from scout import Document
-from scout import IndexDocument
-from scout import Index
-from scout import InvalidRequestException
-from scout import InvalidSearchException
-from scout import Metadata
-from scout import RANK_BM25
+from scout.constants import SEARCH_BM25
+from scout.exceptions import InvalidRequestException
+from scout.exceptions import InvalidSearchException
+from scout.models import Attachment
+from scout.models import BlobData
+from scout.models import database
+from scout.models import Document
+from scout.models import Index
+from scout.models import IndexDocument
+from scout.models import Metadata
+from scout.search import DocumentSearch
+from scout.server import create_server
+
+
+test_config = {
+    'DATABASE': ':memory:',
+    'PAGINATE_BY': 10,
+}
+app = create_server(test_config)
+engine = DocumentSearch()
 
 
 def get_option_parser():
@@ -29,9 +38,6 @@ def get_option_parser():
         action='store_true',
         dest='quiet')
     return parser
-
-
-IS_FTS5 = app.config['SEARCH_EXTENSION'] == 'FTS5'
 
 
 class BaseTestCase(unittest.TestCase):
@@ -96,14 +102,14 @@ class TestSearch(BaseTestCase):
                 )
 
     def search(self, index, query, page=1, **filters):
-        filters.setdefault('ranking', RANK_BM25)
+        filters.setdefault('ranking', SEARCH_BM25)
         params = urllib.urlencode(dict(filters, q=query, page=page))
         response = self.app.get('/%s/?%s' % (index, params))
         return json.loads(response.data)
 
     def test_model_search(self):
         self.populate()
-        results = self.index.search('testing 1*', k1='k1-1')
+        results = engine.search('testing 1*', index=self.index, k1='k1-1')
         clean = [(doc.content, doc.metadata['k1']) for doc in results]
         self.assertEqual(sorted(clean), [
             ('testing 10', 'k1-1'),
@@ -114,7 +120,7 @@ class TestSearch(BaseTestCase):
         ])
 
     def assertResults(self, filters, expected):
-        results = self.index.search('testing', **filters)
+        results = engine.search('testing', index=self.index, **filters)
         results = sorted(results, key=lambda doc: doc.metadata['idx'])
         indexes = [doc.metadata['idx'] for doc in results]
         self.assertEqual(indexes, expected)
@@ -173,7 +179,7 @@ class TestSearch(BaseTestCase):
         for name, (dob, city, state) in data:
             self.index.index(content=name, dob=dob, city=city, state=state)
 
-        docs = self.index.search('*', dob__gt='2009-01-01')
+        docs = engine.search('*', index=self.index, dob__gt='2009-01-01')
         self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
             '2010-06-01',
             '2012-01-01',
@@ -182,14 +188,15 @@ class TestSearch(BaseTestCase):
             '2014-09-01',
         ])
 
-        docs = self.index.search(
-            '*', dob__ge='2008-01-01', dob__lt='2009-01-01')
+        docs = engine.search(
+            '*', index=self.index, dob__ge='2008-01-01', dob__lt='2009-01-01')
         self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
             '2008-04-01',
             '2008-04-20',
         ])
 
-        docs = self.index.search('*', city__in='Topeka,Lawrence', state='KS')
+        docs = engine.search('*', index=self.index, city__in='Topeka,Lawrence',
+                             state='KS')
         self.assertEqual(sorted([doc.content for doc in docs]), [
             'dodie',
             'harley',
@@ -202,7 +209,8 @@ class TestSearch(BaseTestCase):
     def test_invalid_op(self):
         self.assertRaises(
             InvalidRequestException,
-            lambda: self.index.search('testing', name__xx='missing'))
+            lambda: engine.search('testing', index=self.index,
+                                  name__xx='missing'))
 
     def test_search(self):
         self.populate()
@@ -225,7 +233,7 @@ class TestSearch(BaseTestCase):
 
     def test_search_queries(self):
         self.populate()
-        with assert_query_count(8):
+        with assert_query_count(9):
             results = self.search(
                 'default',
                 'testing',
@@ -342,30 +350,26 @@ class TestModelAPIs(BaseTestCase):
         for idx, content in enumerate(self.corpus):
             self.index.index(content=content)
 
-        def assertSearch(phrase, indexes, ranking=RANK_BM25):
-            results = [doc.content
-                       for doc in self.index.search(phrase, ranking)]
+        def assertSearch(phrase, indexes, ranking=SEARCH_BM25):
+            results = [
+                doc.content
+                for doc in
+                engine.search(phrase, index=self.index, ranking=ranking)]
             self.assertEqual(results, [self.corpus[idx] for idx in indexes])
 
         assertSearch('believe', [3, 0])
         assertSearch('faith man', [0])
-        if IS_FTS5:
-            assertSearch('faith thing', [4, 2])
-        else:
-            assertSearch('faith thing', [2, 4])
+        assertSearch('faith thing', [2, 4])
         assertSearch('things', [4, 2])
         assertSearch('blah', [])
-        self.assertRaises(InvalidSearchException, self.index.search, '')
+        self.assertRaises(InvalidSearchException, engine.search, '')
 
-        assertSearch('believe', [3, 0], RANK_BM25)  # Same result.
-        if IS_FTS5:
-            assertSearch('faith thing', [4, 2], RANK_BM25)  # Swapped.
-        else:
-            assertSearch('faith thing', [2, 4], RANK_BM25)  # Same.
-        assertSearch('things', [4, 2], RANK_BM25)  # Same result.
-        assertSearch('blah', [], RANK_BM25)  # No results, works.
+        assertSearch('believe', [3, 0], SEARCH_BM25)  # Same result.
+        assertSearch('faith thing', [2, 4], SEARCH_BM25)  # Same.
+        assertSearch('things', [4, 2], SEARCH_BM25)  # Same result.
+        assertSearch('blah', [], SEARCH_BM25)  # No results, works.
         self.assertRaises(
-            InvalidSearchException, self.index.search, '', RANK_BM25)
+            InvalidSearchException, engine.search, '', SEARCH_BM25)
 
 
 class TestSearchViews(BaseTestCase):
@@ -445,7 +449,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(len(data['documents']), 10)
         doc = data['documents'][0]
         self.assertEqual(doc, {
-            'attachments': '/documents/1/attachments/',
+            'attachments': [],
             'content': 'document-0',
             'id': 1,
             'identifier': None,
@@ -465,7 +469,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(len(data['documents']), 1)
         doc = data['documents'][0]
         self.assertEqual(doc, {
-            'attachments': '/documents/12/attachments/',
+            'attachments': [],
             'content': 'both-doc',
             'id': 12,
             'identifier': None,
@@ -504,7 +508,7 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'k1': 'v1', 'k2': 'v2'}})
 
         self.assertEqual(response, {
-            'attachments': '/documents/1/attachments/',
+            'attachments': [],
             'content': 'doc 1',
             'id': 1,
             'identifier': None,
@@ -515,7 +519,7 @@ class TestSearchViews(BaseTestCase):
             'content': 'doc 2',
             'indexes': ['idx-a', 'idx-b']})
         self.assertEqual(response, {
-            'attachments': '/documents/2/attachments/',
+            'attachments': [],
             'content': 'doc 2',
             'id': 2,
             'identifier': None,
@@ -534,9 +538,24 @@ class TestSearchViews(BaseTestCase):
             'file_0': (StringIO('testfile1'), 'test1.txt'),
             'file_1': (StringIO('testfile2'), 'test2.jpg')})
 
+        a1 = Attachment.get(Attachment.filename == 'test1.txt')
+        a2 = Attachment.get(Attachment.filename == 'test2.jpg')
+        a1_data = {
+            'data': '/documents/1/attachments/test1.txt/download/',
+            'data_length': 9,
+            'mimetype': 'text/plain',
+            'timestamp': str(a1.timestamp),
+            'filename': 'test1.txt'}
+        a2_data = {
+            'data': '/documents/1/attachments/test2.jpg/download/',
+            'data_length': 9,
+            'mimetype': 'image/jpeg',
+            'timestamp': str(a2.timestamp),
+            'filename': 'test2.jpg'}
+
         resp_data = json.loads(response.data)
         self.assertEqual(resp_data, {
-            'attachments': '/documents/1/attachments/',
+            'attachments': [a1_data, a2_data],
             'content': 'doc a',
             'id': 1,
             'identifier': None,
@@ -546,7 +565,7 @@ class TestSearchViews(BaseTestCase):
         Attachment.update(timestamp='2016-02-01 01:02:03').execute()
 
         with assert_query_count(3):
-            resp = self.app.get(resp_data['attachments'])
+            resp = self.app.get('/documents/1/attachments/')
 
         self.assertEqual(json.loads(resp.data), {
             'ordering': [],
@@ -604,10 +623,10 @@ class TestSearchViews(BaseTestCase):
         doc = idx.index('test doc', foo='bar')
         alt_doc = idx.index('alt doc')
 
-        response = self.app.get('/documents/%s/' % doc.get_id())
+        response = self.app.get('/documents/%s/' % doc.docid)
         data = json.loads(response.data)
         self.assertEqual(data, {
-            'attachments': '/documents/%s/attachments/' % doc.get_id(),
+            'attachments': [],
             'content': 'test doc',
             'id': doc.get_id(),
             'identifier': None,
@@ -671,7 +690,7 @@ class TestSearchViews(BaseTestCase):
         idx = Index.create(name='idx')
         doc = idx.index('test doc', foo='bar', nug='baze')
         doc.attach('foo.jpg', 'empty')
-        url = '/documents/%s/' % doc.get_id()
+        url = '/documents/%s/' % doc.docid
 
         json_data = json.dumps({'content': 'test doc-edited'})
         response = self.app.post(url, data={
@@ -680,8 +699,22 @@ class TestSearchViews(BaseTestCase):
             'file_1': (StringIO('yy'), 'foo2.jpg')})
 
         resp_data = json.loads(response.data)
+        a1 = Attachment.get(Attachment.filename == 'foo.jpg')
+        a2 = Attachment.get(Attachment.filename == 'foo2.jpg')
+        a1_data = {
+            'mimetype': 'image/jpeg',
+            'data_length': 2,
+            'data': '/documents/%s/attachments/foo.jpg/download/' % doc.docid,
+            'timestamp': str(a1.timestamp),
+            'filename': 'foo.jpg'}
+        a2_data = {
+            'mimetype': 'image/jpeg',
+            'data_length': 2,
+            'data': '/documents/%s/attachments/foo2.jpg/download/' % doc.docid,
+            'timestamp': str(a2.timestamp),
+            'filename': 'foo2.jpg'}
         self.assertEqual(resp_data, {
-            'attachments': '/documents/1/attachments/',
+            'attachments': [a1_data, a2_data],
             'content': 'test doc-edited',
             'id': 1,
             'identifier': None,
@@ -781,7 +814,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(resp.data, 'zz')
 
     def search(self, index, query, page=1, **filters):
-        filters.setdefault('ranking', RANK_BM25)
+        filters.setdefault('ranking', SEARCH_BM25)
         params = urllib.urlencode(dict(filters, q=query, page=page))
         response = self.app.get('/%s/?%s' % (index, params))
         return json.loads(response.data)
@@ -811,7 +844,7 @@ class TestSearchViews(BaseTestCase):
         doc1, doc2 = response['documents']
 
         self.assertEqual(doc1, {
-            'attachments': '/documents/%s/attachments/' % doc1['id'],
+            'attachments': [],
             'content': 'document nug nugs',
             'id': doc1['id'],
             'identifier': None,
@@ -819,13 +852,10 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'special': 'True'},
             'score': doc1['score']})
 
-        if IS_FTS5:
-            self.assertEqual(round(doc1['score'], 4), -2.2675)
-        else:
-            self.assertEqual(round(doc1['score'], 4), -0.)
+        self.assertEqual(round(doc1['score'], 4), -0.)
 
         self.assertEqual(doc2, {
-            'attachments': '/documents/%s/attachments/' % doc2['id'],
+            'attachments': [],
             'content': 'document blah nuggie foo',
             'id': doc2['id'],
             'identifier': None,
@@ -833,10 +863,7 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'special': 'True'},
             'score': doc2['score']})
 
-        if IS_FTS5:
-            self.assertEqual(round(doc2['score'], 4), -1.3588)
-        else:
-            self.assertEqual(round(doc2['score'], 4), -0.)
+        self.assertEqual(round(doc2['score'], 4), -0.)
 
         response = self.search('idx', 'missing')
         self.assertEqual(len(response['documents']), 0)
@@ -844,10 +871,7 @@ class TestSearchViews(BaseTestCase):
         response = self.search('idx', 'nug', ranking='bm25')
         doc = response['documents'][0]
         self.assertEqual(doc['content'], 'document nug nugs')
-        if IS_FTS5:
-            self.assertEqual(round(doc['score'], 3), -2.98)
-        else:
-            self.assertEqual(round(doc['score'], 3), -2.891)
+        self.assertEqual(round(doc['score'], 3), -2.891)
 
     def test_search_filters(self):
         idx = Index.create(name='idx')
@@ -867,10 +891,7 @@ class TestSearchViews(BaseTestCase):
                        for document in results['documents']]
             self.assertEqual(content, expected)
 
-        if IS_FTS5:
-            results = ['huey document', 'uncle huey', 'little huey bear']
-        else:
-            results = ['huey document', 'little huey bear', 'uncle huey']
+        results = ['huey document', 'little huey bear', 'uncle huey']
 
         assertResults('huey', {}, results)
         assertResults(
@@ -897,7 +918,7 @@ class TestSearchViews(BaseTestCase):
 
         for idx in ['idx-a', 'idx-b']:
             for query in ['nug', 'nug*', 'document', 'missing']:
-                with assert_query_count(8):
+                with assert_query_count(9):
                     # 1. Get index.
                     # 2. Get # of docs in index.
                     # 3. Prefetch indexes.
@@ -908,14 +929,14 @@ class TestSearchViews(BaseTestCase):
                     # 8. COUNT(*) for pagination.
                     self.search(idx, query)
 
-                with assert_query_count(8):
+                with assert_query_count(9):
                     self.search(idx, query, foo='bar')
 
-        with assert_query_count(8):
+        with assert_query_count(9):
             # Same as above.
             data = self.app.get('/idx-a/').data
 
-        with assert_query_count(7):
+        with assert_query_count(8):
             # Same as above minus first query for index.
             self.app.get('/documents/')
 
@@ -956,15 +977,6 @@ class TestSearchViews(BaseTestCase):
 def main():
     option_parser = get_option_parser()
     options, args = option_parser.parse_args()
-    database.init(':memory:')
-    app.config['PAGINATE_BY'] = 10
-    app.config['STAR_ALL'] = True
-    msg = ('Testing Scout using SQLite search engine "%s"' %
-           app.config['SEARCH_EXTENSION'])
-    print msg
-    c_ext = app.config['C_EXTENSIONS']
-    print 'Peewee C extension is %s.' % ('enabled' if c_ext else 'disabled')
-    print '-' * len(msg)
     unittest.main(argv=sys.argv, verbosity=not options.quiet and 2 or 0)
 
 

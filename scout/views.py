@@ -56,12 +56,12 @@ def register_views(app):
 
 def authentication(app):
     def decorator(fn):
-        api_key = app.config.get('AUTHENTICATION')
-        if not api_key:
-            return fn
-
         @wraps(fn)
         def inner(*args, **kwargs):
+            api_key = app.config.get('AUTHENTICATION')
+            if not api_key:
+                return fn(*args, **kwargs)
+
             # Check headers and request.args for `key=<key>`.
             key = request.headers.get('key') or request.args.get('key')
             if key != api_key:
@@ -144,8 +144,7 @@ class ScoutView(MethodView):
         if not q and not allow_blank:
             error('Search term is required.')
 
-        query = engine.search(q or '*', index, ranking, ordering,
-                              star_all=True if not q else False, **filters)
+        query = engine.search(q or '*', index, ranking, ordering, **filters)
         pq = self.paginated_query(query)
 
         response = {
@@ -409,7 +408,14 @@ class AttachmentView(_FileProcessingView):
                  .where(Attachment.document == document))
 
         ordering = request.args.getlist('ordering')
-        query = Attachment.apply_rank_and_sort(query, None, ordering)
+        query = engine.apply_rank_and_sort(query, None, ordering, {
+            'document': Attachment.document,
+            'hash': Attachment.hash,
+            'filename': Attachment.filename,
+            'mimetype': Attachment.mimetype,
+            'timestamp': Attachment.timestamp,
+            'id': Attachment.id,
+        }, 'filename')
 
         pq = self.paginated_query(query)
         return jsonify({
@@ -462,7 +468,6 @@ def attachment_download(document_id, pk):
     attachment = get_object_or_404(
         document.attachments,
         Attachment.filename == pk)
-    _close_database(None)
 
     response = make_response(attachment.blob.data)
     response.headers['Content-Type'] = attachment.mimetype

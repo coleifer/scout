@@ -4,6 +4,7 @@ except ImportError:
     pass
 import operator
 
+from peewee import fn
 from peewee import Select
 
 from .constants import PROTECTED_KEYS
@@ -20,9 +21,9 @@ from .models import Metadata
 
 class DocumentSearch(object):
     def search(self, phrase, index=None, ranking='bm25', ordering=None,
-               star_all=False, **filters):
+               **filters):
         phrase = phrase.strip()
-        if not phrase or (phrase == '*' and not star_all):
+        if not phrase:
             raise InvalidSearchException('Must provide a search query.')
         elif phrase == '*' or ranking == SEARCH_NONE:
             ranking = None
@@ -91,8 +92,9 @@ class DocumentSearch(object):
             expr &
             (Metadata.document == Document.docid)))
 
-    def apply_rank_and_sort(self, query, ranking, ordering):
-        sort_options = {
+    def apply_rank_and_sort(self, query, ranking, ordering, sort_options=None,
+                            sort_default='id'):
+        sort_options = sort_options or {
             'content': Document.content,
             'id': Document.docid,
             'identifier': Document.identifier,
@@ -104,8 +106,6 @@ class DocumentSearch(object):
 
             # Add score to the selected columns.
             query = query.select(*query._returning + [rank.alias('score')])
-        else:
-            sort_default = 'id'
 
         return self.apply_sorting(query, ordering, sort_options, sort_default)
 
