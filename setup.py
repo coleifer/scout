@@ -1,4 +1,6 @@
 import os
+import warnings
+
 from setuptools import setup
 
 cur_dir = os.path.dirname(__file__)
@@ -7,30 +9,32 @@ with open(readme_file) as fh:
     readme = fh.read()
 
 try:
-    import scout
-    VERSION = scout.__version__
+    from scout import __version__ as scout_version
 except ImportError:
-    VERSION = '0.4.0'
+    scout_version = '0.0.0'
+    warnings.warn('Unable to determine scout library version!')
 
 setup(
     name='scout',
-    description='scout',
-    long_description=readme,
-    version=VERSION,
+    version=scout_version,
+    url='http://github.com/coleifer/scout/',
+    license='MIT',
     author='Charles Leifer',
     author_email='coleifer@gmail.com',
-    url='http://github.com/coleifer/scout/',
+    description='scout - a lightweight search server powered by SQLite',
+    long_description=readme,
+    packages=['scout'],
+    zip_safe=False,
+    platforms='any',
+    install_requires=[
+        'flask',
+        'peewee>=3.0.0'],
     classifiers=[
-        'Development Status :: 5 - Production/Stable',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
         'Programming Language :: Python'],
-    license='MIT',
-    install_requires=[
-        'flask',
-        'peewee>=2.7.3'],
-    py_modules=['scout', 'scout_client'],
-    scripts=['scout.py'],
-    test_suite='tests',
+    py_modules=['scout_client'],
+    test_suite='scout.tests',
 )
