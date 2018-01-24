@@ -45,10 +45,15 @@ logger = logging.getLogger('scout')
 
 def register_views(app):
     # Register views and request handlers.
-    IndexView.register(app, 'index_view', '/')
-    DocumentView.register(app, 'document_view', '/documents/')
-    AttachmentView.register(app, 'attachment_view',
-                            '/documents/<document_id>/attachments/', 'path')
+    index_view = IndexView(app)
+    index_view.register('index_view', '/')
+
+    document_view = DocumentView(app)
+    document_view.register('document_view', '/documents/')
+
+    attachment_view = AttachmentView(app)
+    attachment_view.register('attachment_view',
+                             '/documents/<document_id>/attachments/', 'path')
     app.add_url_rule(
         '/documents/<document_id>/attachments/<path:pk>/download/',
         view_func=authentication(app)(attachment_download))
@@ -73,48 +78,41 @@ def authentication(app):
     return decorator
 
 
-class ScoutView(MethodView):
-    @classmethod
-    def register(cls, app, name, url, pk_type=None):
-        view_func = authentication(app)(cls.as_view(name))
-        # Add GET on index view.
-        app.add_url_rule(url, name, defaults={'pk': None}, view_func=view_func,
-                         methods=['GET'])
-        # Add POST on index view.
-        app.add_url_rule(url, name, defaults={'pk': None}, view_func=view_func,
-                         methods=['POST'])
+class ScoutView(object):
+    def __init__(self, app):
+        self.app = app
+        self.paginate_by = app.config.get('PAGINATE_BY') or 50
 
-        # Add detail views.
+    def register(self, name, url, pk_type=None):
+        auth = authentication(self.app)
+        base_views = (
+            (self.list_view, 'GET', name),
+            (self.create, 'POST', name + '_create'))
+
+        for view, method, view_name in base_views:
+            self.app.add_url_rule(url, view_name, view_func=auth(view),
+                                  methods=[method])
+
         if pk_type is None:
             detail_url = url + '<pk>/'
         else:
             detail_url = url + '<%s:pk>/' % pk_type
         name += '_detail'
-        app.add_url_rule(detail_url, name, view_func=view_func,
-                         methods=['GET', 'PUT', 'POST', 'DELETE'])
 
-        cls.paginate_by = app.config.get('PAGINATE_BY') or 50
+        detail_views = (
+            (self.detail, ['GET'], name),
+            (self.update, ['POST', 'PUT'], name + '_update'),
+            (self.delete, ['DELETE'], name + '_delete'))
+
+        for view, methods, view_name in detail_views:
+            self.app.add_url_rule(detail_url, view_name, view_func=auth(view),
+                                  methods=methods)
 
     def paginated_query(self, query, paginate_by=None):
         return PaginatedQuery(
             query,
             paginate_by=paginate_by or self.paginate_by,
             check_bounds=False)
-
-    def get(self, **kwargs):
-        if kwargs.get('pk') is None:
-            kwargs.pop('pk', None)
-            return self.list_view(**kwargs)
-        return self.detail(**kwargs)
-
-    def post(self, **kwargs):
-        if kwargs.get('pk') is None:
-            kwargs.pop('pk', None)
-            return self.create(**kwargs)
-        return self.update(**kwargs)
-
-    def put(self, **kwargs):
-        return self.update(**kwargs)
 
     def detail(self):
         raise NotImplementedError
@@ -169,8 +167,6 @@ class ScoutView(MethodView):
 #
 
 class IndexView(ScoutView):
-    serializer_class = IndexSerializer
-
     def detail(self, pk):
         index = get_object_or_404(Index, Index.name == pk)
         document_count = index.documents.count()
@@ -266,8 +262,6 @@ class _FileProcessingView(ScoutView):
 
 
 class DocumentView(_FileProcessingView):
-    serializer_class = DocumentSerializer
-
     def detail(self, pk):
         document = self._get_document(pk)
         return jsonify(document_serializer.serialize(document))
@@ -386,8 +380,6 @@ class DocumentView(_FileProcessingView):
 
 
 class AttachmentView(_FileProcessingView):
-    serializer_class = AttachmentSerializer
-
     def _get_attachment(self, document, pk):
         return get_object_or_404(
             document.attachments,
