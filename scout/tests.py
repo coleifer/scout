@@ -6,7 +6,7 @@ try:
     from urllib.parse import urlencode
 except ImportError:
     from urllib import urlencode
-from io import StringIO
+from io import BytesIO
 
 from playhouse.sqlite_ext import *
 from playhouse.test_utils import assert_query_count
@@ -41,6 +41,9 @@ def get_option_parser():
         action='store_true',
         dest='quiet')
     return parser
+
+def json_load(data):
+    return json.loads(data.decode('utf-8'))
 
 
 class BaseTestCase(unittest.TestCase):
@@ -108,7 +111,7 @@ class TestSearch(BaseTestCase):
         filters.setdefault('ranking', SEARCH_BM25)
         params = urlencode(dict(filters, q=query, page=page))
         response = self.app.get('/%s/?%s' % (index, params))
-        return json.loads(response.data)
+        return json_load(response.data)
 
     def test_model_search(self):
         self.populate()
@@ -387,7 +390,7 @@ class TestSearchViews(BaseTestCase):
             data=json.dumps(data),
             headers={'content-type': 'application/json'})
         if parse_response:
-            return json.loads(response.data)
+            return json_load(response.data)
         return response
 
     def test_create_index(self):
@@ -406,7 +409,7 @@ class TestSearchViews(BaseTestCase):
 
     def test_create_invalid_json(self):
         response = self.app.post('/', data='not json')
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(
             data,
             {'error': 'Missing correct content-type or missing "data" field.'})
@@ -415,7 +418,7 @@ class TestSearchViews(BaseTestCase):
             '/',
             data='not json',
             headers={'content-type': 'application/json'})
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(
             data,
             {'error': 'Unable to parse JSON data from request.'})
@@ -425,7 +428,7 @@ class TestSearchViews(BaseTestCase):
             Index.create(name='i%s' % i)
 
         response = self.app.get('/')
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(data['indexes'], [
             {'document_count': 0, 'documents': '/i0/', 'id': 1, 'name': 'i0'},
             {'document_count': 0, 'documents': '/i1/', 'id': 2, 'name': 'i1'},
@@ -446,7 +449,7 @@ class TestSearchViews(BaseTestCase):
         idx_a.index(b_doc.content, b_doc)
 
         response = self.app.get('/idx-a/')
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(data['page'], 1)
         self.assertEqual(data['pages'], 2)
         self.assertEqual(len(data['documents']), 10)
@@ -460,13 +463,13 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'foo': 'bar-0'}})
 
         response = self.app.get('/idx-a/?page=2')
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(data['page'], 2)
         self.assertEqual(data['pages'], 2)
         self.assertEqual(len(data['documents']), 2)
 
         response = self.app.get('/idx-b/')
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(data['page'], 1)
         self.assertEqual(data['pages'], 1)
         self.assertEqual(len(data['documents']), 1)
@@ -495,7 +498,7 @@ class TestSearchViews(BaseTestCase):
             ['foo', 'idx only'])
 
         response = self.app.delete('/idx-updated/')
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(data, {'success': True})
 
         self.assertEqual(Document.select().count(), 3)
@@ -538,8 +541,8 @@ class TestSearchViews(BaseTestCase):
         })
         response = self.app.post('/documents/', data={
             'data': json_data,
-            'file_0': (StringIO('testfile1'), 'test1.txt'),
-            'file_1': (StringIO('testfile2'), 'test2.jpg')})
+            'file_0': (BytesIO(b'testfile1'), 'test1.txt'),
+            'file_1': (BytesIO(b'testfile2'), 'test2.jpg')})
 
         a1 = Attachment.get(Attachment.filename == 'test1.txt')
         a2 = Attachment.get(Attachment.filename == 'test2.jpg')
@@ -556,7 +559,7 @@ class TestSearchViews(BaseTestCase):
             'timestamp': str(a2.timestamp),
             'filename': 'test2.jpg'}
 
-        resp_data = json.loads(response.data)
+        resp_data = json_load(response.data)
         self.assertEqual(resp_data, {
             'attachments': [a1_data, a2_data],
             'content': 'doc a',
@@ -570,7 +573,7 @@ class TestSearchViews(BaseTestCase):
         with assert_query_count(3):
             resp = self.app.get('/documents/1/attachments/')
 
-        self.assertEqual(json.loads(resp.data), {
+        self.assertEqual(json_load(resp.data), {
             'ordering': [],
             'pages': 1,
             'page': 1,
@@ -627,7 +630,7 @@ class TestSearchViews(BaseTestCase):
         alt_doc = idx.index('alt doc')
 
         response = self.app.get('/documents/%s/' % doc.docid)
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(data, {
             'attachments': [],
             'content': 'test doc',
@@ -698,10 +701,10 @@ class TestSearchViews(BaseTestCase):
         json_data = json.dumps({'content': 'test doc-edited'})
         response = self.app.post(url, data={
             'data': json_data,
-            'file_0': (StringIO('xx'), 'foo.jpg'),
-            'file_1': (StringIO('yy'), 'foo2.jpg')})
+            'file_0': (BytesIO(b'xx'), 'foo.jpg'),
+            'file_1': (BytesIO(b'yy'), 'foo2.jpg')})
 
-        resp_data = json.loads(response.data)
+        resp_data = json_load(response.data)
         a1 = Attachment.get(Attachment.filename == 'foo.jpg')
         a2 = Attachment.get(Attachment.filename == 'foo2.jpg')
         a1_data = {
@@ -747,7 +750,7 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(Attachment.select().count(), 1)
 
         response = self.app.delete('/documents/%s/' % d2.get_id())
-        data = json.loads(response.data)
+        data = json_load(response.data)
         self.assertEqual(data, {'success': True})
 
         self.assertEqual(Metadata.select().count(), 2)
@@ -773,7 +776,7 @@ class TestSearchViews(BaseTestCase):
         Attachment.update(timestamp='2016-01-02 03:04:05').execute()
 
         resp = self.app.get('/documents/1/attachments/')
-        resp_data = json.loads(resp.data)
+        resp_data = json_load(resp.data)
         self.assertEqual(resp_data['attachments'], [
             {
                 'mimetype': 'image/png',
@@ -794,7 +797,7 @@ class TestSearchViews(BaseTestCase):
         ])
 
         resp = self.app.get('/documents/1/attachments/foo.jpg/')
-        resp_data = json.loads(resp.data)
+        resp_data = json_load(resp.data)
         self.assertEqual(resp_data, {
             'mimetype': 'image/jpeg',
             'timestamp': '2016-01-02 03:04:05',
@@ -809,18 +812,18 @@ class TestSearchViews(BaseTestCase):
 
         resp = self.app.post('/documents/1/attachments/bar.png/', data={
             'data': '',
-            'file_0': (StringIO('zz'), 'bar.png')})
-        resp_data = json.loads(resp.data)
+            'file_0': (BytesIO(b'zz'), 'bar.png')})
+        resp_data = json_load(resp.data)
         self.assertEqual(resp_data['data_length'], 2)
 
         resp = self.app.get('/documents/1/attachments/bar.png/download/')
-        self.assertEqual(resp.data, 'zz')
+        self.assertEqual(resp.data, b'zz')
 
     def search(self, index, query, page=1, **filters):
         filters.setdefault('ranking', SEARCH_BM25)
         params = urlencode(dict(filters, q=query, page=page))
         response = self.app.get('/%s/?%s' % (index, params))
-        return json.loads(response.data)
+        return json_load(response.data)
 
     def test_search(self):
         idx = Index.create(name='idx')
@@ -956,7 +959,7 @@ class TestSearchViews(BaseTestCase):
         app.config['AUTHENTICATION'] = 'test'
         resp = self.app.get('/')
         self.assertEqual(resp.status_code, 401)
-        self.assertEqual(resp.data, 'Invalid API key')
+        self.assertEqual(resp.data.decode('utf-8'), 'Invalid API key')
 
         resp = self.app.get('/?key=tesss')
         self.assertEqual(resp.status_code, 401)
@@ -966,13 +969,13 @@ class TestSearchViews(BaseTestCase):
 
         resp = self.app.get('/?key=test')
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(json.loads(resp.data)['indexes'], [{
+        self.assertEqual(json_load(resp.data)['indexes'], [{
             'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/idx/'
         }])
 
         resp = self.app.get('/', headers={'key': 'test'})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(json.loads(resp.data)['indexes'], [{
+        self.assertEqual(json_load(resp.data)['indexes'], [{
             'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/idx/'
         }])
 

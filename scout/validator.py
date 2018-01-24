@@ -1,10 +1,18 @@
 import json
+import sys
 
 from flask import request
 
 from scout.constants import PROTECTED_KEYS
 from scout.exceptions import error
 from scout.models import Index
+
+
+if sys.version_info[0] == 2:
+    json_load = lambda d: json.loads(d)
+else:
+    json_load = lambda d: json.loads(d.decode('utf-8') if isinstance(d, bytes)
+                                     else d)
 
 
 class RequestValidator(object):
@@ -22,7 +30,7 @@ class RequestValidator(object):
 
         if data:
             try:
-                data = json.loads(data)
+                data = json_load(data)
             except ValueError:
                 error('Unable to parse JSON data from request.')
         else:

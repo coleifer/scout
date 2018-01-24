@@ -2,6 +2,7 @@ import base64
 import datetime
 import hashlib
 import mimetypes
+import sys
 
 from peewee import *
 from playhouse.fields import CompressedField
@@ -11,6 +12,12 @@ try:
 except ImportError:
     pass
 from werkzeug import secure_filename
+
+
+if sys.version_info[0] == 2:
+    unicode_type = unicode
+else:
+    unicode_type = str
 
 
 database = SqliteExtDatabase(None, regexp_function=True)
@@ -65,6 +72,8 @@ class Document(FTSModel):
 
     def attach(self, filename, data):
         filename = secure_filename(filename)
+        if isinstance(data, unicode_type):
+            data = data.encode('utf-8')
         hash_obj = hashlib.sha256(data)
         data_hash = base64.b64encode(hash_obj.digest())
         try:
