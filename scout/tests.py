@@ -2,8 +2,11 @@ import json
 import optparse
 import sys
 import unittest
-import urllib
-from StringIO import StringIO
+try:
+    from urllib.parse import urlencode
+except ImportError:
+    from urllib import urlencode
+from io import StringIO
 
 from playhouse.sqlite_ext import *
 from playhouse.test_utils import assert_query_count
@@ -103,7 +106,7 @@ class TestSearch(BaseTestCase):
 
     def search(self, index, query, page=1, **filters):
         filters.setdefault('ranking', SEARCH_BM25)
-        params = urllib.urlencode(dict(filters, q=query, page=page))
+        params = urlencode(dict(filters, q=query, page=page))
         response = self.app.get('/%s/?%s' % (index, params))
         return json.loads(response.data)
 
@@ -815,7 +818,7 @@ class TestSearchViews(BaseTestCase):
 
     def search(self, index, query, page=1, **filters):
         filters.setdefault('ranking', SEARCH_BM25)
-        params = urllib.urlencode(dict(filters, q=query, page=page))
+        params = urlencode(dict(filters, q=query, page=page))
         response = self.app.get('/%s/?%s' % (index, params))
         return json.loads(response.data)
 
