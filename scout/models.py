@@ -141,7 +141,7 @@ class Attachment(BaseModel):
 
 class BlobData(BaseModel):
     """Content-addressable BLOB."""
-    hash = CharField(primary_key=True)
+    hash = TextField(primary_key=True)
     data = CompressedField(compression_level=6, algorithm='zlib')
 
 
