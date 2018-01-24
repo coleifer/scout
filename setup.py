@@ -37,4 +37,8 @@ setup(
         'Programming Language :: Python'],
     py_modules=['scout_client'],
     test_suite='scout.tests',
+    entry_points="""
+        [console_scripts]
+        scout=scout.server:main
+    """,
 )

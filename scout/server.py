@@ -70,7 +70,7 @@ def initialize_database(database_file, pragmas=None):
             Metadata])
 
 
-def main(app):
+def run(app):
     if app.config['DEBUG']:
         app.run(host=app.config['HOST'], port=app.config['PORT'], debug=True)
     else:
@@ -202,6 +202,10 @@ def parse_options():
     return create_server(config, config_file)
 
 
-if __name__ == '__main__':
+def main():
     app = parse_options()
-    main(app)
+    run(app)
+
+
+if __name__ == '__main__':
+    main()
