@@ -682,13 +682,14 @@ Scout supports a handful of configuration options to control it's behavior when 
 * ``-H``, ``--host``: set the hostname to listen on. Defaults to ``127.0.0.1``
 * ``-p``, ``--port``: set the port to listen on. Defaults to ``8000``.
 * ``-s``, ``--stem``: set the stemming algorithm. Valid options are ``simple`` and ``porter``. Defaults to ``porter`` stemmer. This option only will be in effect when a new database is created, as the stemming algorithm is part of the table definition.
-* ``-k``, ``--api-key``: set the API key required to access Scout. By default no authentication is required.
-* ``--paginate-by``: set the number of documents displayed per page of results. Default is 50.
-* ``-c``, ``--config``: set the configuration file (a Python module). See the configuration options for available settings.
-* ``--paginate-by``: set the number of documents displayed per page of results. Defaults to 50.
-* ``-v``, ``--search-version``: set the SQLite FTS version. Valid values are ``4`` or ``5``.
-* ``-a``, ``--star-all``: when the search term is "*", return all records. This option is disabled by default.
 * ``-d``, ``--debug``: boolean flag to run Scout in debug mode.
+* ``-c``, ``--config``: set the configuration file (a Python module). See the configuration options for available settings.
+* ``--paginate-by``: set the number of documents displayed per page of results. Default is 50.
+* ``-k``, ``--api-key``: set the API key required to access Scout. By default no authentication is required.
+* ``-C``, ``--cache-size``: set the size of the SQLite page cache (in MB), defaults to 64.
+* ``-f``, ``--fsync``: require fsync after every SQLite transaction is committed.
+* ``-j``, ``--journal-mode``: specify SQLite journal-mode. Default is "wal".
+* ``-l``, ``--logfile``: configure file for log output.
 
 .. _config-file:
 
@@ -705,9 +706,7 @@ The following options can be overridden:
 * ``HOST`` (same as ``-H`` or ``--host``).
 * ``PAGINATE_BY`` (same as ``--paginate-by``).
 * ``PORT`` (same as ``-p`` or ``--port``).
-* ``SEARCH_EXTENSION``, manually specify the FTS extension version. Scout defaults to the newest version available based on your installed SQLite, but you can force an older version with this option. (same as ``-v`` or ``--search-version``)
 * ``SECRET_KEY``, which is used internally by Flask to encrypt client-side session data stored in cookies.
-* ``STAR_ALL``, when the search term is "*", return all records. This option is disabled by default. (same as ``-a`` or ``--star-all``)
 * ``STEM`` (same as ``-s`` or ``--stem``).
 
 .. note:: Options specified on the command-line will override any options specified in the configuration file.

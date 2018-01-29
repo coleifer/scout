@@ -18,7 +18,9 @@ Here is the wrapper module:
 
 .. code-block:: python
 
-    from scout import app
+    from scout.server import parse_options
+
+    app = parse_options()
 
     @app.after_request
     def add_cors_header(response):
@@ -39,7 +41,9 @@ Here is the wrapper code:
     import logging
     import os
 
-    from scout import app
+    from scout.server import parse_options
+
+    app = parse_options()
 
     cur_dir = os.path.realpath(os.path.dirname(__file__))
     log_dir = os.path.join(cur_dir, 'logs')

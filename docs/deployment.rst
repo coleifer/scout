@@ -26,10 +26,10 @@ Here is an example wrapper script for running Scout using the Gevent WSGI server
     monkey.patch_all()
 
     from gevent.wsgi import WSGIServer
-    from scout import app, initialize_database
+    from scout.server import parse_options
 
-    # Initialize the search index and create the tables if they don't exist.
-    initialize_database('/path/to/search-index.db')
+    # Parse command-line options and return a Flask app.
+    app = parse_options()
 
     # Run the WSGI server on localhost:8000.
     WSGIServer(('127.0.0.1', 8000), app).serve_forever()
@@ -44,8 +44,8 @@ Here is an example wrapper script for running Scout using Gunicorn.
 .. code-block:: python
 
     # Wrapper script to initialize database.
-    from scout import app, initialize_database
-    initialize_database('/path/to/search-index.db')
+    from scout.server import parse_options
+    app = parse_options()
 
 Here is how to run gunicorn using the above wrapper script:
 
@@ -61,8 +61,8 @@ Here is an example wrapper script for uWSGI.
 .. code-block:: python
 
     # Wrapper script to initialize database.
-    from scout import app, initialize_database
-    initialize_database('/path/to/search-index.db')
+    from scout import parse_options
+    app = parse_options()
 
 Here is how you might run using the above wrapper script:
 
