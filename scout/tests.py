@@ -343,9 +343,9 @@ class TestModelAPIs(BaseTestCase):
                  .dicts())
         idx_doc_data = [idx_doc for idx_doc in query]
         self.assertEqual(idx_doc_data, [
-            {'document_id': document.get_id(), 'name': 'idx-0'},
-            {'document_id': document.get_id(), 'name': 'idx-1'},
-            {'document_id': document.get_id(), 'name': 'idx-2'},
+            {'document': document.get_id(), 'name': 'idx-0'},
+            {'document': document.get_id(), 'name': 'idx-1'},
+            {'document': document.get_id(), 'name': 'idx-2'},
         ])
 
     def test_search(self):
