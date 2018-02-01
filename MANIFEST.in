@@ -1,9 +1,7 @@
+include CHANGELOG.md
 include LICENSE
 include README.md
-include runtests.sh
+include runtests.py
 include scout_client.py
 include tests.py
-include test_fts4.cfg
-include test_fts4_c.cfg
-include test_fts5.cfg
 recursive-include docs/*
