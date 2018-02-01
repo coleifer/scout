@@ -131,7 +131,7 @@ Response:
       "document_count": 3,
       "documents": [
         {
-          "attachments": "/documents/115/attachments/",
+          "attachments": [],
           "content": "test charlie document",
           "id": 115,
           "identifier": null,
@@ -144,7 +144,15 @@ Response:
           "score": -0.022727272727272728
         },
         {
-          "attachments": "/documents/116/attachments/",
+          "attachments": [
+            {
+              "data": "/documents/116/attachments/example.jpg/download/",
+              "data_length": 31337,
+              "filename": "example.jpg",
+              "mimetype": "image/jpeg",
+              "timestamp: "2016-01-04 13:37:00"
+            }
+          ],
           "content": "test huey document",
           "id": 116,
           "identifier": null,
@@ -157,7 +165,7 @@ Response:
           "score": -0.022727272727272728
         },
         {
-          "attachments": "/documents/117/attachments/",
+          "attachments": [],
           "content": "test mickey document",
           "id": 117,
           "identifier": null,
@@ -290,7 +298,15 @@ Response:
       "document_count": 207,
       "documents": [
         {
-          "attachments": "/documents/72/attachments/",
+          "attachments": [
+            {
+              "data": "/documents/72/attachments/example.jpg/download/",
+              "data_length": 31337,
+              "filename": "example.jpg",
+              "mimetype": "image/jpeg",
+              "timestamp: "2016-03-01 13:37:00"
+            }
+          ],
           "content": "test photo",
           "id": 72,
           "identifier": null,
@@ -303,7 +319,15 @@ Response:
           "score": -0.01304
         },
         {
-          "attachments": "/documents/61/attachments/",
+          "attachments": [
+            {
+              "data": "/documents/61/attachments/movie.mp4/download/",
+              "data_length": 3131337,
+              "filename": "movie.mp4",
+              "mimetype": "video/mp4",
+              "timestamp: "2016-03-02 13:37:00"
+            }
+          ],
           "content": "test video upload",
           "id": 61,
           "identifier": null,
@@ -374,7 +398,7 @@ Response:
 .. code-block:: javascript
 
     {
-      "attachments": "/documents/118/attachments/",
+      "attachments": [],
       "content": "test zaizee document",
       "id": 118,
       "identifier": null,
@@ -555,72 +579,6 @@ To download an attachment, simply send a ``GET`` request to the attachment's "da
 .. code-block:: console
 
     $ curl http://localhost:8000/documents/13/attachments/banner.jpg/download/
-
-.. _attachment_search:
-
-Attachment search: "/documents/attachments/search/"
----------------------------------------------------
-
-The attachment search is identical to the document list endpoint, with the difference that instead of returning documents, the returned data is a list of attachments.
-
-Valid GET parameters:
-
-* ``q``: full-text search query.
-* ``page``: which page of results to fetch, by default 1.
-* ``index``: the name of an index to restrict the results to. **Note**: this parameter can appear multiple times.
-* ``ordering``: order in which to return the attachments. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``document``, ``hash``, ``filename``, ``mimetype``, ``timestamp``, ``id``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
-* ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
-
-  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
-  * ``simple``: use a simple, efficient ranking algorithm.
-  * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
-
-* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
-
-Example ``GET`` request and response.
-
-.. code-block:: console
-
-    $ curl localhost:8000/documents/attachments/?q=testing
-
-Response:
-
-.. code-block:: javascript
-
-    {
-      attachment_count: 2,
-      attachments: [
-        {
-          data: "/documents/13/attachments/banner.jpg/download/",
-          document_id: 13,
-          filename: "banner.jpg",
-          hash: "fT/hMy/a5yxO9vWe/Q5MiAhN7Qob3QCvhm2wpHJ3dWg=",
-          id: 2,
-          identifier: null,
-          mimetype: "image/jpeg",
-          score: -0.15657480712302124,
-          timestamp: "2016-03-04 00:00:00"
-        },
-        {
-          data: "/documents/13/attachments/background.jpg/download/",
-          document_id: 13,
-          filename: "background.jpg",
-          hash: "WCrgLseHOxMEO3mB+LXksqklEJb2prL+OJhVzTbkC7Q=",
-          id: 3,
-          identifier: null,
-          mimetype: "image/jpeg",
-          score: -0.15657480712302124,
-          timestamp: "2016-03-04 01:00:00"
-        }
-      ],
-      filters: {},
-      ordering: [],
-      page: 1,
-      pages: 1,
-      ranking: "bm25",
-      search_term: "testing"
-    }
-
 
 Example of using Authentication
 -------------------------------

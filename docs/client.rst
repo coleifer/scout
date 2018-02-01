@@ -153,18 +153,3 @@ Scout comes with a simple Python client. This document describes the client API.
         Download the specified attachment.
 
         For more information, see :ref:`attachment_download`.
-
-    .. py:method:: search_attachments(**kwargs)
-
-        Perform full-text search and/or advanced filtering and sorting on a paginated list of attachments.
-
-        The following optional parameters are supported:
-
-        :param q: full-text search query.
-        :param page: page number of results to retrieve
-        :param index: the name or names of indexes to restrict the results to.
-        :param ordering: order in which to return the attachments. By default they are returned ordered by filename, unless a full-text search query is present, in which case they are ordered by relevance.
-        :param ranking: The ranking algorithm used for full-text searches.
-        :param **filters: Arbitrary key/value metadata filters. See :ref:`metadata_filters` for more information.
-
-        For more information, see :ref:`attachment_search` and :ref:`document_list`.
