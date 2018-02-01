@@ -26,7 +26,7 @@ scout has the following features:
 * multiple result ranking algorithms, porter stemmer.
 * besides full-text search, perform complex filtering based on metadata values.
 * comprehensive unit-tests.
-* supports SQLite `FTS4 <http://sqlite.org/fts3.html>`_ and the brand-new `FTS5 <http://sqlite.org/fts5.html>`_.
+* supports SQLite `FTS4 <http://sqlite.org/fts3.html>`_.
 
 named in honor of the best dog ever,
 
