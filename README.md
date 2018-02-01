@@ -15,6 +15,8 @@ Features:
 * Supports SQLite [FTS4](http://sqlite.org/fts3.html) and the brand-new [FTS5](http://sqlite.org/fts5.html).
 * [Documentation hosted on ReadTheDocs](https://scout.readthedocs.io/en/latest/).
 
+![](https://api.travis-ci.org/coleifer/scout.svg?branch=master)
+
 ## Installation
 
 Scout can be installed from PyPI using `pip` or from source using `git`. Should you install from PyPI you will run the latest version, whereas installing from `git` ensures you have the latest changes.
