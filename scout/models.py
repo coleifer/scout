@@ -38,7 +38,9 @@ class Document(FTSModel):
 
     class Meta:
         database = database
-        options = {'tokenize': 'porter unicode61'}
+        options = {
+            'prefix': [2, 3],
+            'tokenize': 'porter unicode61'}
         table_name = 'main_document'
 
     @classmethod
