@@ -332,9 +332,6 @@ class DocumentView(_FileProcessingView):
         if save_document:
             document.save()
             logger.info('Updated document with id = %s', document.get_id())
-        else:
-            logger.warning('No changes, aborting update of document id = %s',
-                           document.get_id())
 
         if 'metadata' in data:
             del document.metadata
