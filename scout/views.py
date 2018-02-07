@@ -43,18 +43,24 @@ logger = logging.getLogger('scout')
 
 
 def register_views(app):
+    prefix = app.config.get('URL_PREFIX') or ''
+    if prefix:
+        prefix = '/%s' % prefix.strip('/')
+
     # Register views and request handlers.
     index_view = IndexView(app)
-    index_view.register('index_view', '/')
+    index_view.register('index_view', '%s/' % prefix)
 
     document_view = DocumentView(app)
-    document_view.register('document_view', '/documents/')
+    document_view.register('document_view', '%s/documents/' % prefix)
 
     attachment_view = AttachmentView(app)
-    attachment_view.register('attachment_view',
-                             '/documents/<document_id>/attachments/', 'path')
+    attachment_view.register(
+        'attachment_view',
+        '%s/documents/<document_id>/attachments/' % prefix,
+        'path')
     app.add_url_rule(
-        '/documents/<document_id>/attachments/<path:pk>/download/',
+        '%s/documents/<document_id>/attachments/<path:pk>/download/' % prefix,
         view_func=authentication(app)(attachment_download))
 
 

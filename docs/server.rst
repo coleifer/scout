@@ -639,6 +639,7 @@ Scout supports a handful of configuration options to control it's behavior when 
 
 * ``-H``, ``--host``: set the hostname to listen on. Defaults to ``127.0.0.1``
 * ``-p``, ``--port``: set the port to listen on. Defaults to ``8000``.
+* ``-u``, ``--url-prefix``: url path to prefix Scout API with, e.g. "/search".
 * ``-s``, ``--stem``: set the stemming algorithm. Valid options are ``simple`` and ``porter``. Defaults to ``porter`` stemmer. This option only will be in effect when a new database is created, as the stemming algorithm is part of the table definition.
 * ``-d``, ``--debug``: boolean flag to run Scout in debug mode.
 * ``-c``, ``--config``: set the configuration file (a Python module). See the configuration options for available settings.

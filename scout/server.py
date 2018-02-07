@@ -103,6 +103,11 @@ def get_option_parser():
         help='The port to listen on. Defaults to 8000.',
         type='int')
     parser.add_option(
+        '-u',
+        '--url-prefix',
+        dest='url_prefix',
+        help='URL path to prefix Scout API.')
+    parser.add_option(
         '-s',
         '--stem',
         dest='stem',
@@ -190,6 +195,7 @@ def parse_options():
         config['DEBUG'] = True
     config['HOST'] = options.host or '127.0.0.1'
     config['PORT'] = options.port or 8000
+    config['URL_PREFIX'] = options.url_prefix or ''
     if options.paginate_by:
         if options.paginate_by < 1 or options.paginate_by > 1000:
             panic('paginate-by must be between 1 and 1000')
