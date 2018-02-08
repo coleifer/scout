@@ -15,7 +15,16 @@ lightweight components:
 * database access coordinated using `peewee ORM <http://docs.peewee-orm.com/>`_
 * web application built with `flask <http://flask.pocoo.org>`_ framework
 
-scout has the following features:
+Scout aims to be a lightweight, RESTful search server in the spirit of
+[ElasticSearch](https://www.elastic.co), powered by the SQLite full-text search
+extension. In addition to search, Scout can be used as a document database,
+supporting complex filtering operations. Arbitrary files can be attached to
+documents and downloaded through the REST API.
+
+Scout is simple to use, simple to deploy and *just works*.
+
+Features
+--------
 
 * multiple search indexes present in a single database.
 * restful design for easy indexing and searching.

@@ -1,6 +1,16 @@
 ![](http://media.charlesleifer.com/blog/photos/scout-logo.png)
 
-[scout](https://scout.readthedocs.io/en/latest/) is a RESTful search server written in Python. The search is powered by [SQLite's full-text search extension](http://sqlite.org/fts3.html), and the web application utilizes the [Flask](http://flask.pocoo.org) framework.
+[scout](https://scout.readthedocs.io/en/latest/) is a RESTful search server
+written in Python. The search is powered by [SQLite's full-text search extension](http://sqlite.org/fts3.html),
+and the web application utilizes the [Flask](http://flask.pocoo.org) framework.
+
+Scout aims to be a lightweight, RESTful search server in the spirit of
+[ElasticSearch](https://www.elastic.co), powered by the SQLite full-text search
+extension. In addition to search, Scout can be used as a document database,
+supporting complex filtering operations. Arbitrary files can be attached to
+documents and downloaded through the REST API.
+
+Scout is simple to use, simple to deploy and *just works*.
 
 Features:
 
