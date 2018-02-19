@@ -54,3 +54,17 @@ $ python setup.py install
 Using either of the above methods will also ensure the project's Python dependencies are installed: [flask](http://flask.pocoo.org) and [peewee](http://docs.peewee-orm.com).
 
 [Check out the documentation](https://scout.readthedocs.io/en/latest/) for more information about the project.
+
+## Running scout
+
+If you installed using `pip`, you should be able to simply run:
+
+```console
+$ scout /path/to/search-index.db
+```
+
+If you've just got a copy of the source code, you can run:
+
+```console
+$ python scout/ /path/to/search-index.db
+```
