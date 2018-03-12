@@ -29,7 +29,12 @@ Features:
 
 ## Installation
 
-Scout can be installed from PyPI using `pip` or from source using `git`. Should you install from PyPI you will run the latest version, whereas installing from `git` ensures you have the latest changes.
+Scout can be installed from PyPI using `pip` or from source using `git`. Should
+you install from PyPI you will run the latest version, whereas installing from
+`git` ensures you have the latest changes.
+
+Alternatively, you can run `scout` using [docker](https://www.docker.com/) and
+the provided [Dockerfile](https://github.com/coleifer/scout/blob/master/docker/Dockerfile).
 
 Installation using pip:
 
@@ -51,7 +56,9 @@ $ cd scout/
 $ python setup.py install
 ```
 
-Using either of the above methods will also ensure the project's Python dependencies are installed: [flask](http://flask.pocoo.org) and [peewee](http://docs.peewee-orm.com).
+Using either of the above methods will also ensure the project's Python
+dependencies are installed: [flask](http://flask.pocoo.org) and
+[peewee](http://docs.peewee-orm.com).
 
 [Check out the documentation](https://scout.readthedocs.io/en/latest/) for more information about the project.
 
@@ -67,4 +74,28 @@ If you've just got a copy of the source code, you can run:
 
 ```console
 $ python scout/ /path/to/search-index.db
+```
+
+## Docker
+
+To run scout using docker, you can use the provided Dockerfile or simply pull
+the `coleifer/scout` image from dockerhub:
+
+```console
+
+$ docker run -it --rm -p 9004:9004 coleifer/scout
+# scout is now running on 0.0.0.0:9004
+```
+
+Build your own image locally and run it:
+
+```console
+
+$ cd scout/docker
+$ docker build -t scout .
+$ docker run -d \
+    --name my-scout-server \
+    -p 9004:9004 \
+    -v scout-data:/data \
+    scout
 ```
