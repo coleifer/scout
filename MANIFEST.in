@@ -4,4 +4,5 @@ include README.md
 include runtests.py
 include scout_client.py
 include tests.py
+recursive-include docker/*
 recursive-include docs/*
