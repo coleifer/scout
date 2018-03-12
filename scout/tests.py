@@ -732,8 +732,8 @@ class TestSearchViews(BaseTestCase):
 
         # Existing file updated, new file added.
         foo, foo2 = Attachment.select().order_by(Attachment.filename)
-        self.assertEqual(foo.blob.data, 'xx')
-        self.assertEqual(foo2.blob.data, 'yy')
+        self.assertEqual(foo.blob.data, b'xx')
+        self.assertEqual(foo2.blob.data, b'yy')
 
     def test_document_detail_delete(self):
         idx = Index.create(name='idx')
