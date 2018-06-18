@@ -65,6 +65,7 @@ class BaseTestCase(unittest.TestCase):
         if not database.is_closed():
             database.close()
         database.connect()
+        database.foreign_keys = 0
         assert database.get_tables() == []
         database.create_tables([
             Attachment,
