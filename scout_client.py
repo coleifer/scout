@@ -8,10 +8,8 @@ import mimetypes
 import os
 try:
     from urllib.parse import urlencode
-    from urllib.parse import urljoin
 except ImportError:
     from urllib import urlencode
-    from urlparse import urljoin
 try:
     from urllib.request import Request
     from urllib.request import urlopen
@@ -27,11 +25,11 @@ KEY = None
 
 class Scout(object):
     def __init__(self, endpoint=ENDPOINT, key=KEY):
-        self.endpoint = endpoint
+        self.endpoint = endpoint.rstrip('/')
         self.key = key
 
     def get_full_url(self, url):
-        return urljoin(self.endpoint, url)
+        return self.endpoint + url
 
     def get_raw(self, url, **kwargs):
         headers = {'Content-Type': 'application/json'}
