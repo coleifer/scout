@@ -60,7 +60,7 @@ class Scout(object):
         if not isinstance(data, bytes):
             data = data.encode('utf-8')
         request = Request(self.get_full_url(url), data=data, headers=headers)
-        return json.loads(urlopen(request).read())
+        return json.loads(urlopen(request).read().decode('utf8'))
 
     def post_files(self, url, json_data, files=None):
         if not files or not isinstance(files, dict):
