@@ -366,13 +366,13 @@ class TestModelAPIs(BaseTestCase):
 
         assertSearch('believe', [3, 0])
         assertSearch('faith man', [0])
-        assertSearch('faith thing', [2, 4])
+        assertSearch('faith thing', [4, 2])
         assertSearch('things', [4, 2])
         assertSearch('blah', [])
         self.assertRaises(InvalidSearchException, engine.search, '')
 
         assertSearch('believe', [3, 0], SEARCH_BM25)  # Same result.
-        assertSearch('faith thing', [2, 4], SEARCH_BM25)  # Same.
+        assertSearch('faith thing', [4, 2], SEARCH_BM25)  # Same.
         assertSearch('things', [4, 2], SEARCH_BM25)  # Same result.
         assertSearch('blah', [], SEARCH_BM25)  # No results, works.
         self.assertRaises(
@@ -859,7 +859,7 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'special': 'True'},
             'score': doc1['score']})
 
-        self.assertEqual(round(doc1['score'], 4), -0.)
+        self.assertEqual(round(doc1['score'], 4), -2.1995)
 
         self.assertEqual(doc2, {
             'attachments': [],
@@ -870,7 +870,7 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'special': 'True'},
             'score': doc2['score']})
 
-        self.assertEqual(round(doc2['score'], 4), -0.)
+        self.assertEqual(round(doc2['score'], 4), -1.2948)
 
         response = self.search('idx', 'missing')
         self.assertEqual(len(response['documents']), 0)
@@ -898,7 +898,7 @@ class TestSearchViews(BaseTestCase):
                        for document in results['documents']]
             self.assertEqual(content, expected)
 
-        results = ['huey document', 'little huey bear', 'uncle huey']
+        results = ['huey document', 'uncle huey', 'little huey bear']
 
         assertResults('huey', {}, results)
         assertResults(
