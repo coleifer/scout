@@ -11,7 +11,7 @@ app = parse_options()
 if __name__ == '__main__':
     # Serve app using gevent WSGI server.
     from gevent.pool import Pool
-    from gevent.wsgi import WSGIServer
+    from gevent.pywsgi import WSGIServer
 
     MAX_CONNECTIONS = int(os.environ.get('SCOUT_MAX_CONNECTIONS') or 128)
     pool = Pool(MAX_CONNECTIONS)
