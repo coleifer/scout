@@ -25,7 +25,7 @@ Here is an example wrapper script for running Scout using the Gevent WSGI server
     from gevent import monkey
     monkey.patch_all()
 
-    from gevent.wsgi import WSGIServer
+    from gevent.pywsgi import WSGIServer
     from scout.server import parse_options
 
     # Parse command-line options and return a Flask app.
