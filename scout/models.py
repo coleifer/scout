@@ -11,7 +11,10 @@ try:
     from playhouse.sqlite_ext import CSqliteExtDatabase as SqliteExtDatabase
 except ImportError:
     pass
-from werkzeug import secure_filename
+try:
+    from werkzeug import secure_filename
+except ImportError:
+    from werkzeug.utils import secure_filename
 
 
 if sys.version_info[0] == 2:
