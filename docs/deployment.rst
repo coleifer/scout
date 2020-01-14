@@ -39,15 +39,7 @@ You could then run the wrapper script using a tool like `supervisord <http://sup
 Gunicorn
 --------
 
-Here is an example wrapper script for running Scout using Gunicorn.
-
-.. code-block:: python
-
-    # Wrapper script to initialize database.
-    from scout.server import parse_options
-    app = parse_options()
-
-Here is how to run gunicorn using the above wrapper script:
+Here is an example for running Scout using Gunicorn.
 
 .. code-block:: console
 
