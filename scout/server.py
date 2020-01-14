@@ -208,9 +208,9 @@ def parse_options():
     return create_server(config, config_file)
 
 
+application = parse_options()
 def main():
-    app = parse_options()
-    run(app)
+    run(application)
 
 
 if __name__ == '__main__':
