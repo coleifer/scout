@@ -22,7 +22,6 @@ setup(
     author='Charles Leifer',
     author_email='coleifer@gmail.com',
     description='scout - a lightweight search server powered by SQLite',
-    long_description=readme,
     packages=['scout'],
     zip_safe=False,
     platforms='any',
