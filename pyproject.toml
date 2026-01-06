@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scout"
+dynamic = ["version"]
+description = "a lightweight search server powered by sqlite"
+dependencies = [
+    "flask",
+    "peewee>=3.0.0",
+]
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Charles Leifer", email = "coleifer@gmail.com" }
+]
+classifiers = [
+    "Environment :: Web Environment",
+    "Programming Language :: Python :: 2",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+    "Topic :: Database :: Front-Ends",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.scripts]
+scout = "scout.server:main"
+
+[project.urls]
+Repository = "https://github.com/coleifer/scout"
+Documentation = "https://scout.readthedocs.io/"
+
+[tool.setuptools.dynamic]
+version = { attr = "scout.__version__" }

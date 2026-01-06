@@ -53,7 +53,7 @@ If you wish to install from source, first clone the code and run `setup.py insta
 ```console
 $ git clone https://github.com/coleifer/scout.git
 $ cd scout/
-$ python setup.py install
+$ pip install .
 ```
 
 Using either of the above methods will also ensure the project's Python

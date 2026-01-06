@@ -2,6 +2,19 @@
 
 This document describes changes to Scout from one release to another.
 
+### 3.0.4
+
+New build system.
+
+**Backwards-incompatible** - the scout client has been moved into the `scout`
+package, and can now be imported using:
+
+```
+from scout.client import Scout
+```
+
+[View commits](https://github.com/coleifer/scout/compare/3.0.3...3.0.4)
+
 ### 3.0.2
 
 * Fix a failing test, which was changed due to an update to how Peewee
