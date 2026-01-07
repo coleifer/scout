@@ -32,3 +32,6 @@ Documentation = "https://scout.readthedocs.io/"
 
 [tool.setuptools.dynamic]
 version = { attr = "scout.__version__" }
+
+[tool.setuptools.packages.find]
+exclude = ["docs*", "docker*"]
