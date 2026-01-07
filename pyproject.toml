@@ -30,8 +30,8 @@ scout = "scout.server:main"
 Repository = "https://github.com/coleifer/scout"
 Documentation = "https://scout.readthedocs.io/"
 
+[tool.setuptools]
+packages = ["scout"]
+
 [tool.setuptools.dynamic]
 version = { attr = "scout.__version__" }
-
-[tool.setuptools.packages.find]
-exclude = ["docs*", "docker*"]
