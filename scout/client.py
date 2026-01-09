@@ -19,7 +19,7 @@ except ImportError:
 
 
 class Scout(object):
-    def __init__(self, endpoint='127.0.0.1:8000', key=None):
+    def __init__(self, endpoint='http://127.0.0.1:8000', key=None):
         self.endpoint = endpoint.rstrip('/')
         if not self.endpoint.startswith('http'):
             self.endpoint = 'http://%s' % endpoint

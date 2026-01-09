@@ -2,6 +2,12 @@
 
 This document describes changes to Scout from one release to another.
 
+## master
+
+* Add `scout.gevent_server` implementation of Scout using gevent for the WSGI
+  server.
+* Set base URL to default to http://localhost:8000 for Scout client.
+
 ### 3.0.4
 
 New build system.
