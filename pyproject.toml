@@ -25,6 +25,7 @@ classifiers = [
 
 [project.scripts]
 scout = "scout.server:main"
+scout_wsgi = "scout.gevent_server:main"
 
 [project.urls]
 Repository = "https://github.com/coleifer/scout"

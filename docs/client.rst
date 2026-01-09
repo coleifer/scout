@@ -16,7 +16,7 @@ Scout comes with a simple Python client. This document describes the client API.
 
     .. code-block:: pycon
 
-        >>> from scout_client import Scout
+        >>> from scout.client import Scout
         >>> scout = Scout('https://search.my-site.com/', key='secret!')
 
     .. py:method:: get_indexes(**kwargs)

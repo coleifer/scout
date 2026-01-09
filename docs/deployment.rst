@@ -18,7 +18,14 @@ http://flask.pocoo.org/docs/0.10/deploying/wsgi-standalone/
 Gevent
 ------
 
-Here is an example wrapper script for running Scout using the Gevent WSGI server:
+Scout comes with a production-ready gevent WSGI server. To run this server:
+
+.. code-block:: console
+
+    $ scout_wsgi /path/to/database.db
+
+If you wish to have more control over the server implementation, this example
+wrapper script can get you started:
 
 .. code-block:: python
 

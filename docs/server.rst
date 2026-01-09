@@ -3,16 +3,28 @@
 Scout Server
 ============
 
-Scout server is a RESTful Flask application that provides endpoints for managing indexes, documents, metadata and performing searches. To get started with Scout, you can simply run the server from the command-line and specify the path to a SQLite database file which will act as the search index.
+Scout server is a RESTful Flask application that provides endpoints for
+managing indexes, documents, metadata and performing searches. To get started
+with Scout, you can simply run the server from the command-line and specify the
+path to a SQLite database file which will act as the search index.
 
 .. note:: If the database does not exist, it will be created.
 
 .. code-block:: console
 
-    $ python scout.py my_search_index.db
+    $ scout my_search_index.db
      * Running on http://127.0.0.1:8000/ (Press CTRL+C to quit)
 
-This will run Scout locally on port 8000 using the Werkzeug multi-threaded WSGI server. The werkzeug server is perfect for getting started and small deployments. You can find examples of using high performance WSGI servers in the :ref:`deployment section <deployment>`.
+This will run Scout locally on port 8000 using the Werkzeug multi-threaded WSGI
+server. The werkzeug server is perfect for getting started and small deployments.
+For a production-ready server powered by `gevent <https://www.gevent.org/>`_,
+you can instead run:
+
+.. code-block:: console
+
+    $ scout_wsgi my_search_index.db
+
+You can find examples of using other high performance WSGI servers in the :ref:`deployment section <deployment>`.
 
 API Endpoints
 -------------

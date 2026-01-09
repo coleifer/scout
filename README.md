@@ -76,6 +76,15 @@ If you've just got a copy of the source code, you can run:
 $ python scout/ /path/to/search-index.db
 ```
 
+### Production-ready server
+
+Scout comes with a production-ready WSGI server powered by gevent. To use this
+server instead, you can run:
+
+```console
+$ scout_wsgi /path/to/search-index.db
+```
+
 ## Docker
 
 To run scout using docker, you can use the provided Dockerfile or simply pull

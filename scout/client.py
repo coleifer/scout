@@ -16,16 +16,13 @@ try:
 except ImportError:
     from urllib2 import Request
     from urllib2 import urlopen
-import zlib
-
-
-ENDPOINT = None
-KEY = None
 
 
 class Scout(object):
-    def __init__(self, endpoint=ENDPOINT, key=KEY):
+    def __init__(self, endpoint='127.0.0.1:8000', key=None):
         self.endpoint = endpoint.rstrip('/')
+        if not self.endpoint.startswith('http'):
+            self.endpoint = 'http://%s' % endpoint
         self.key = key
 
     def get_full_url(self, url):
