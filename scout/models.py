@@ -8,22 +8,13 @@ from peewee import *
 from playhouse.fields import CompressedField
 from playhouse.sqlite_ext import *
 try:
-    from playhouse.sqlite_ext import CSqliteExtDatabase as SqliteExtDatabase
-except ImportError:
-    pass
-try:
-    from werkzeug import secure_filename
-except ImportError:
-    from werkzeug.utils import secure_filename
+    SqliteExtDatabase
+except NameError:
+    SqliteExtDatabase = SqliteDatabase
+from werkzeug.utils import secure_filename
 
 
-if sys.version_info[0] == 2:
-    unicode_type = unicode
-else:
-    unicode_type = str
-
-
-database = SqliteExtDatabase(None, regexp_function=True)
+database = SqliteExtDatabase(None, rank_functions=True, regexp_function=True)
 
 
 class Document(FTSModel):
@@ -77,7 +68,7 @@ class Document(FTSModel):
 
     def attach(self, filename, data):
         filename = secure_filename(filename)
-        if isinstance(data, unicode_type):
+        if isinstance(data, str):
             data = data.encode('utf-8')
         hash_obj = hashlib.sha256(data)
         data_hash = base64.b64encode(hash_obj.digest())

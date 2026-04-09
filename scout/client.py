@@ -1,21 +1,12 @@
 import base64
 import json
-try:
-    from email.generator import _make_boundary as choose_boundary
-except ImportError:
-    from mimetools import choose_boundary
 import mimetypes
 import os
-try:
-    from urllib.parse import urlencode
-except ImportError:
-    from urllib import urlencode
-try:
-    from urllib.request import Request
-    from urllib.request import urlopen
-except ImportError:
-    from urllib2 import Request
-    from urllib2 import urlopen
+
+from email.generator import _make_boundary as choose_boundary
+from urllib.parse import urlencode
+from urllib.request import Request
+from urllib.request import urlopen
 
 
 class Scout(object):

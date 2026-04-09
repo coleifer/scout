@@ -8,11 +8,8 @@ from scout.exceptions import error
 from scout.models import Index
 
 
-if sys.version_info[0] == 2:
-    json_load = lambda d: json.loads(d)
-else:
-    json_load = lambda d: json.loads(d.decode('utf-8') if isinstance(d, bytes)
-                                     else d)
+json_load = lambda d: json.loads(d.decode('utf-8') if isinstance(d, bytes)
+                                 else d)
 
 
 class RequestValidator(object):
