@@ -1288,6 +1288,101 @@ class TestSearchViews(BaseTestCase):
         self.assertIn('next_url', data)
         self.assertIn('previous_url', data)
 
+    def test_global_attachment_list(self):
+        idx = Index.create(name='idx')
+        d1 = idx.index('doc 1')
+        d2 = idx.index('doc 2')
+        d1.attach('photo.jpg', b'jpeg-data')
+        d1.attach('notes.txt', b'text-data')
+        d2.attach('logo.png', b'png-data')
+
+        response = self.app.get('/attachments/')
+        data = json_load(response.data)
+        self.assertEqual(data['page'], 1)
+        filenames = sorted(a['filename'] for a in data['attachments'])
+        self.assertEqual(filenames, ['logo.png', 'notes.txt', 'photo.jpg'])
+
+    def test_global_attachment_filter(self):
+        idx = Index.create(name='idx')
+        idx2 = Index.create(name='idx2')
+
+        doc = idx.index('doc')
+        doc.attach('photo.jpg', b'jpeg')
+        doc.attach('notes.txt', b'text')
+        doc.attach('logo.png', b'png')
+
+        doc2 = idx2.index('doc')
+        doc2.attach('d2.jpg', b'jpeg2')
+        doc2.attach('notes.txt', b'text2')
+
+        response = self.app.get('/attachments/?mimetype=image/jpeg')
+        data = json_load(response.data)
+        self.assertEqual(len(data['attachments']), 2)
+        self.assertEqual(sorted([a['filename'] for a in data['attachments']]),
+                         ['d2.jpg', 'photo.jpg'])
+
+        response = self.app.get('/attachments/?filename=notes.txt')
+        attachments = json_load(response.data)['attachments']
+        self.assertEqual(len(attachments), 2)
+
+        attachments.sort(key=lambda a: a['timestamp'])
+        self.assertEqual([a['filename'] for a in attachments],
+                         ['notes.txt', 'notes.txt'])
+        self.assertEqual([a['data'] for a in attachments], [
+            '/documents/%s/attachments/notes.txt/download/' % doc.docid,
+            '/documents/%s/attachments/notes.txt/download/' % doc2.docid])
+
+        response = self.app.get('/attachments/?index=idx2')
+        data = json_load(response.data)
+        self.assertEqual(len(data['attachments']), 2)
+        self.assertEqual(sorted([a['filename'] for a in data['attachments']]),
+                         ['d2.jpg', 'notes.txt'])
+
+        response = self.app.get(
+            '/attachments/?index=idx&index=idx2')
+        data = json_load(response.data)
+        self.assertEqual(len(data['attachments']), 5)
+
+        response = self.app.get(
+            '/attachments/?index=idx-not-here&index=idx-also-not-here')
+        data = json_load(response.data)
+        self.assertEqual(len(data['attachments']), 0)
+
+    def test_global_attachment_ordering(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('doc')
+        doc.attach('b.txt', b'b')
+        doc.attach('a.txt', b'a')
+        doc.attach('c.txt', b'c')
+
+        response = self.app.get('/attachments/')
+        data = json_load(response.data)
+        filenames = [a['filename'] for a in data['attachments']]
+        self.assertEqual(filenames, ['a.txt', 'b.txt', 'c.txt'])
+
+        response = self.app.get('/attachments/?ordering=-filename')
+        data = json_load(response.data)
+        filenames = [a['filename'] for a in data['attachments']]
+        self.assertEqual(filenames, ['c.txt', 'b.txt', 'a.txt'])
+
+    def test_global_attachment_empty(self):
+        response = self.app.get('/attachments/')
+        data = json_load(response.data)
+        self.assertEqual(data['attachments'], [])
+        self.assertEqual(data['page'], 1)
+        self.assertEqual(data['pages'], 0)
+
+    def test_global_attachment_list_requires_auth(self):
+        app.config['AUTHENTICATION'] = 'secret'
+        try:
+            response = self.app.get('/attachments/')
+            self.assertEqual(response.status_code, 401)
+
+            response = self.app.get('/attachments/?key=secret')
+            self.assertEqual(response.status_code, 200)
+        finally:
+            app.config['AUTHENTICATION'] = None
+
 
 class FlaskScout(Scout):
     def __init__(self, flask_app, key=None):
@@ -1726,6 +1821,34 @@ class TestScoutClient(BaseTestCase):
         self.scout.delete_document(doc_id)
         results = self.scout.get_index('blog', q='python')
         self.assertEqual(len(results['documents']), 0)
+
+    def test_search_attachments(self):
+        self.scout.create_index('idx')
+        self.scout.create_document(
+            'with files', 'idx',
+            attachments={
+                'a.txt': BytesIO(b'aaa'),
+                'b.jpg': BytesIO(b'bbb'),
+            })
+
+        results = self.scout.search_attachments()
+        self.assertEqual(len(results['attachments']), 2)
+
+        results = self.scout.search_attachments(mimetype='image/jpeg')
+        self.assertEqual(len(results['attachments']), 1)
+        self.assertEqual(results['attachments'][0]['filename'], 'b.jpg')
+
+    def test_search_attachments_by_index(self):
+        self.scout.create_index('a')
+        self.scout.create_index('b')
+        self.scout.create_document(
+            'doc a', 'a', attachments={'fa.txt': BytesIO(b'a')})
+        self.scout.create_document(
+            'doc b', 'b', attachments={'fb.txt': BytesIO(b'b')})
+
+        results = self.scout.search_attachments(index='a')
+        self.assertEqual(len(results['attachments']), 1)
+        self.assertEqual(results['attachments'][0]['filename'], 'fa.txt')
 
 
 def main():

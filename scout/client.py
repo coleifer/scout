@@ -201,7 +201,7 @@ class Scout(object):
                             (document_id, filename))
 
     def search_attachments(self, **kwargs):
-        return self.get('/documents/attachments/', **kwargs)
+        return self.get('/attachments/', **kwargs)
 
 
 class SearchProvider(object):

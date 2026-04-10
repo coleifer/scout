@@ -64,6 +64,11 @@ def register_views(app):
     app.add_url_rule(
         '%s/documents/<document_id>/attachments/<path:pk>/download/' % prefix,
         view_func=authentication(app)(attachment_download))
+    app.add_url_rule(
+        '%s/attachments/' % prefix,
+        'attachment_list',
+        view_func=authentication(app)(attachment_list),
+        methods=['GET'])
 
 
 def authentication(app):
@@ -121,7 +126,8 @@ class ScoutView(object):
             paginate_by=paginate_by or self.paginate_by,
             check_bounds=False)
 
-    def get_pagination_urls(self, pq):
+    @staticmethod
+    def paginated_response(pq, data):
         """Build next/previous URLs from current request, swapping page."""
         page = pq.get_page()
         pages = pq.get_page_count()
@@ -133,10 +139,13 @@ class ScoutView(object):
             params['page'] = [str(page_num)]
             return '%s?%s' % (base, urlencode(params, doseq=True))
 
-        return {
+        data.update({
             'next_url': build_url(page + 1) if page < pages else None,
             'previous_url': build_url(page - 1) if page > 1 else None,
-        }
+            'page': page,
+            'pages': pages,
+        })
+        return data
 
     def detail(self):
         raise NotImplementedError
@@ -171,7 +180,7 @@ class ScoutView(object):
         query = engine.search(q or '*', index, ranking, ordering, **filters)
         pq = self.paginated_query(query)
 
-        response = {
+        response = self.paginated_response(pq, {
             'document_count': document_count,
             'documents': document_serializer.serialize_query(
                 pq.get_object_list(),
@@ -179,10 +188,7 @@ class ScoutView(object):
             'filtered_count': query.count(),
             'filters': filters,
             'ordering': ordering,
-            'page': pq.get_page(),
-            'pages': pq.get_page_count(),
-        }
-        response.update(self.get_pagination_urls(pq))
+        })
         if q:
             response.update(
                 ranking=ranking,
@@ -216,13 +222,10 @@ class IndexView(ScoutView):
             'id': Index.id}, 'name')
 
         pq = self.paginated_query(query)
-        response = {
+        response = self.paginated_response(pq, {
             'indexes': [index_serializer.serialize(index)
                         for index in pq.get_object_list()],
-            'ordering': ordering,
-            'page': pq.get_page(),
-            'pages': pq.get_page_count()}
-        response.update(self.get_pagination_urls(pq))
+            'ordering': ordering})
         return jsonify(response)
 
     def create(self):
@@ -459,13 +462,10 @@ class AttachmentView(_FileProcessingView):
         }, 'filename')
 
         pq = self.paginated_query(query)
-        response = {
+        response = self.paginated_response(pq, {
             'attachments': [attachment_serializer.serialize(attachment)
                             for attachment in pq.get_object_list()],
-            'ordering': ordering,
-            'page': pq.get_page(),
-            'pages': pq.get_page_count()}
-        response.update(self.get_pagination_urls(pq))
+            'ordering': ordering})
         return jsonify(response)
 
     def create(self, document_id):
@@ -519,3 +519,40 @@ def attachment_download(document_id, pk):
         attachment.filename)
 
     return response
+
+def attachment_list():
+    query = (Attachment
+             .select(Attachment, BlobData)
+             .join(BlobData,
+                   on=(Attachment.hash == BlobData.hash).alias('_blob')))
+
+    idx_list = request.args.getlist('index')
+    if idx_list:
+        query = (query
+                 .join_from(Attachment, Document)
+                 .join_from(Document, IndexDocument)
+                 .join_from(IndexDocument, Index)
+                 .where(Index.name.in_(idx_list)))
+
+    filename = request.args.get('filename')
+    if filename:
+        query = query.where(Attachment.filename == filename)
+
+    mimetype = request.args.get('mimetype')
+    if mimetype:
+        query = query.where(Attachment.mimetype == mimetype)
+
+    ordering = request.args.getlist('ordering')
+    query = engine.apply_rank_and_sort(query, None, ordering, {
+        'filename': Attachment.filename,
+        'mimetype': Attachment.mimetype,
+        'timestamp': Attachment.timestamp,
+        'id': Attachment.id,
+    }, 'filename')
+
+    pq = PaginatedQuery(query, paginate_by=50, check_bounds=False)
+    response = ScoutView.paginated_response(pq, {
+        'attachments': [attachment_serializer.serialize(attachment)
+                        for attachment in pq.get_object_list()],
+        'ordering': ordering})
+    return jsonify(response)
