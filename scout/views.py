@@ -1,5 +1,6 @@
-from functools import wraps
 import logging
+from functools import wraps
+from urllib.parse import urlencode
 
 from flask import abort
 from flask import Flask
@@ -120,6 +121,23 @@ class ScoutView(object):
             paginate_by=paginate_by or self.paginate_by,
             check_bounds=False)
 
+    def get_pagination_urls(self, pq):
+        """Build next/previous URLs from current request, swapping page."""
+        page = pq.get_page()
+        pages = pq.get_page_count()
+        base = request.base_url
+        args = request.args.to_dict(flat=False)
+
+        def build_url(page_num):
+            params = dict(args)
+            params['page'] = [str(page_num)]
+            return '%s?%s' % (base, urlencode(params, doseq=True))
+
+        return {
+            'next_url': build_url(page + 1) if page < pages else None,
+            'previous_url': build_url(page - 1) if page > 1 else None,
+        }
+
     def detail(self):
         raise NotImplementedError
 
@@ -164,6 +182,7 @@ class ScoutView(object):
             'page': pq.get_page(),
             'pages': pq.get_page_count(),
         }
+        response.update(self.get_pagination_urls(pq))
         if q:
             response.update(
                 ranking=ranking,
@@ -197,12 +216,14 @@ class IndexView(ScoutView):
             'id': Index.id}, 'name')
 
         pq = self.paginated_query(query)
-        return jsonify({
+        response = {
             'indexes': [index_serializer.serialize(index)
                         for index in pq.get_object_list()],
             'ordering': ordering,
             'page': pq.get_page(),
-            'pages': pq.get_page_count()})
+            'pages': pq.get_page_count()}
+        response.update(self.get_pagination_urls(pq))
+        return jsonify(response)
 
     def create(self):
         data = validator.parse_post(['name'])
@@ -279,10 +300,16 @@ class DocumentView(_FileProcessingView):
         idx_list = request.args.getlist('index')
         if idx_list:
             indexes = Index.select(Index.id).where(Index.name.in_(idx_list))
+            document_count = (Document
+                              .select()
+                              .join(IndexDocument)
+                              .where(IndexDocument.index.in_(indexes))
+                              .distinct()
+                              .count())
         else:
             indexes = None
+            document_count = Document.select().count()
 
-        document_count = Document.select().count()
         return jsonify(self._search_response(indexes, True, document_count))
 
     def create(self):
@@ -432,12 +459,14 @@ class AttachmentView(_FileProcessingView):
         }, 'filename')
 
         pq = self.paginated_query(query)
-        return jsonify({
+        response = {
             'attachments': [attachment_serializer.serialize(attachment)
                             for attachment in pq.get_object_list()],
             'ordering': ordering,
             'page': pq.get_page(),
-            'pages': pq.get_page_count()})
+            'pages': pq.get_page_count()}
+        response.update(self.get_pagination_urls(pq))
+        return jsonify(response)
 
     def create(self, document_id):
         document = self._get_document(document_id)

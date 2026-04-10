@@ -640,6 +640,8 @@ class TestSearchViews(BaseTestCase):
             'ordering': [],
             'pages': 1,
             'page': 1,
+            'next_url': None,
+            'previous_url': None,
             'attachments': [
                 {
                     'mimetype': 'text/plain',
@@ -1173,6 +1175,119 @@ class TestSearchViews(BaseTestCase):
             'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/idx/'
         }])
 
+    def test_document_count_filtered_by_index(self):
+        # document_count at /documents/ should reflect the index filter.
+        idx_a = Index.create(name='idx-a')
+        idx_b = Index.create(name='idx-b')
+        for i in range(5):
+            idx_a.index('doc-a-%d' % i)
+        for i in range(3):
+            idx_b.index('doc-b-%d' % i)
+
+        # No filter - total across all indexes.
+        response = self.app.get('/documents/')
+        data = json_load(response.data)
+        self.assertEqual(data['document_count'], 8)
+
+        # Filter to idx-a only.
+        response = self.app.get('/documents/?index=idx-a')
+        data = json_load(response.data)
+        self.assertEqual(data['document_count'], 5)
+
+        # Filter to idx-b only.
+        response = self.app.get('/documents/?index=idx-b')
+        data = json_load(response.data)
+        self.assertEqual(data['document_count'], 3)
+
+        # Filter to both - all 8.
+        response = self.app.get('/documents/?index=idx-a&index=idx-b')
+        data = json_load(response.data)
+        self.assertEqual(data['document_count'], 8)
+
+    def test_document_count_shared_document_not_double_counted(self):
+        # A document in two filtered indexes should be counted once.
+        idx_a = Index.create(name='idx-a')
+        idx_b = Index.create(name='idx-b')
+        doc = idx_a.index('shared doc')
+        idx_b.add_to_index(doc)
+        idx_a.index('a-only')
+
+        response = self.app.get('/documents/?index=idx-a&index=idx-b')
+        data = json_load(response.data)
+        # 2 documents total, not 3.
+        self.assertEqual(data['document_count'], 2)
+
+    def test_pagination_urls_in_document_list(self):
+        idx = Index.create(name='idx')
+        for i in range(25):
+            idx.index('doc %d' % i)
+
+        # Page 1 of 3 (paginate_by=10).
+        response = self.app.get('/documents/')
+        data = json_load(response.data)
+        self.assertEqual(data['page'], 1)
+        self.assertEqual(data['pages'], 3)
+        self.assertTrue(data['next_url'].endswith('/documents/?page=2'))
+        self.assertIsNone(data['previous_url'])
+
+        # Page 2.
+        response = self.app.get('/documents/?page=2')
+        data = json_load(response.data)
+        self.assertEqual(data['page'], 2)
+        self.assertIsNotNone(data['next_url'])
+        self.assertTrue(data['next_url'].endswith('/documents/?page=3'))
+        self.assertIsNotNone(data['previous_url'])
+        self.assertTrue(data['previous_url'].endswith('/documents/?page=1'))
+
+        # Page 3 (last).
+        response = self.app.get('/documents/?page=3')
+        data = json_load(response.data)
+        self.assertEqual(data['page'], 3)
+        self.assertIsNone(data['next_url'])
+        self.assertIsNotNone(data['previous_url'])
+        self.assertTrue(data['previous_url'].endswith('/documents/?page=2'))
+
+    def test_pagination_urls_preserve_query_params(self):
+        idx = Index.create(name='idx')
+        for i in range(25):
+            idx.index('document %d' % i, color='red')
+
+        response = self.app.get('/idx/?q=document&color=red')
+        data = json_load(response.data)
+        next_url = data['next_url']
+        self.assertIn('page=2', next_url)
+        self.assertIn('q=document', next_url)
+        self.assertIn('color=red', next_url)
+
+    def test_pagination_urls_single_page(self):
+        idx = Index.create(name='idx')
+        idx.index('only doc')
+
+        response = self.app.get('/idx/')
+        data = json_load(response.data)
+        self.assertIsNone(data['next_url'])
+        self.assertIsNone(data['previous_url'])
+
+    def test_pagination_urls_in_index_list(self):
+        for i in range(25):
+            Index.create(name='idx-%02d' % i)
+
+        response = self.app.get('/')
+        data = json_load(response.data)
+        self.assertIn('next_url', data)
+        self.assertIn('previous_url', data)
+
+    def test_pagination_urls_in_attachment_list(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('doc')
+        for i in range(15):
+            doc.attach('file_%02d.txt' % i, b'data')
+
+        response = self.app.get('/documents/%s/attachments/' % doc.get_id())
+        data = json_load(response.data)
+        self.assertIn('next_url', data)
+        self.assertIn('previous_url', data)
+
 
 class FlaskScout(Scout):
     def __init__(self, flask_app, key=None):
@@ -1274,8 +1389,10 @@ class TestScoutClient(BaseTestCase):
             'id': idx['id'],
             'name': 'idx',
             'ordering': [],
+            'next_url': None,
             'page': 1,
-            'pages': 1})
+            'pages': 1,
+            'previous_url': None})
 
     def test_create_document_multiple_indexes(self):
         self.scout.create_index('a')
@@ -1291,6 +1408,20 @@ class TestScoutClient(BaseTestCase):
         doc = self.scout.create_document('content', 'idx',
                                          identifier='custom-id')
         self.assertEqual(doc['identifier'], 'custom-id')
+
+    def test_get_documents_filtered_by_multiple_indexes(self):
+        self.scout.create_index('a')
+        self.scout.create_index('b')
+        self.scout.create_index('c')
+        self.scout.create_document('in a', 'a')
+        self.scout.create_document('in b', 'b')
+        self.scout.create_document('in c', 'c')
+
+        results = self.scout.get_documents(index=['a', 'b'])
+        self.assertEqual(results['document_count'], 2)
+        self.assertEqual(len(results['documents']), 2)
+        contents = sorted(d['content'] for d in results['documents'])
+        self.assertEqual(contents, ['in a', 'in b'])
 
     def test_get_document(self):
         self.scout.create_index('idx')
