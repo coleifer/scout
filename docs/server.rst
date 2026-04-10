@@ -27,6 +27,18 @@ you can instead run:
 You can find examples of using other high performance WSGI servers in the
 :ref:`deployment section <deployment>`.
 
+All of the examples below show raw HTTP requests using ``curl`` as well as the
+equivalent call using the :ref:`Scout Python client <client>`. To initialize
+the client:
+
+.. code-block:: python
+
+    from scout.client import Scout
+    scout = Scout('http://localhost:8000')
+
+    # If authentication is enabled:
+    scout = Scout('http://localhost:8000', key='secret')
+
 API Endpoints
 -------------
 
@@ -78,6 +90,12 @@ Example GET request and response:
 
     $ curl localhost:8000/
 
+Using the Python client:
+
+.. code-block:: python
+
+    indexes = scout.get_indexes()
+
 Response:
 
 .. code-block:: javascript
@@ -104,11 +122,21 @@ Response:
       "previous_url": null
     }
 
+.. note::
+    The ``get_indexes()`` method returns just the ``"indexes"`` list from the
+    response, not the full paginated envelope.
+
 Example POST request and response:
 
 .. code-block:: console
 
     $ curl -H "Content-Type: application/json" -d '{"name": "test-index"}' localhost:8000/
+
+Using the Python client:
+
+.. code-block:: python
+
+    new_index = scout.create_index('test-index')
 
 Response:
 
@@ -160,6 +188,12 @@ Example ``GET`` request and response.
 .. code-block:: console
 
     $ curl localhost:8000/test-index/?q=test
+
+Using the Python client:
+
+.. code-block:: python
+
+    results = scout.get_index('test-index', q='test')
 
 Response:
 
@@ -233,6 +267,18 @@ Response:
 view, accept a ``name`` parameter. For example request and response, see the
 above section on creating a new index.
 
+Example of renaming an index:
+
+.. code-block:: console
+
+    $ curl -H "Content-Type: application/json" -d '{"name": "new-name"}' localhost:8000/test-index/
+
+Using the Python client:
+
+.. code-block:: python
+
+    renamed = scout.rename_index('test-index', 'new-name')
+
 ``DELETE`` requests will delete the index, but all documents will be preserved in the database.
 
 Example of deleting an index:
@@ -240,6 +286,12 @@ Example of deleting an index:
 .. code-block:: console
 
     $ curl -X DELETE localhost:8000/photos/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.delete_index('photos')
 
 Response:
 
@@ -275,15 +327,41 @@ To search for all my relatives living in Kansas, I could use the following URL:
 
 ``/contacts-index/?q=Leifer+OR+Morgan&state=KS``
 
+Using the Python client:
+
+.. code-block:: python
+
+    results = scout.get_index('contacts-index', q='Leifer OR Morgan', state='KS')
+
 Let's say we want to search our contacts index for all people who were born in
 1983. We could use the following URL:
 
 ``/contacts-index/?dob__ge=1983-01-01&dob__lt=1984-01-01``
 
+Using the Python client:
+
+.. code-block:: python
+
+    results = scout.get_index(
+        'contacts-index',
+        q='*',
+        dob__ge='1983-01-01',
+        dob__lt='1984-01-01')
+
 To search for all people who live in Lawrence or Topeka, KS we could use the
 following URL:
 
 ``/contacts-index/?city__in=Lawrence,Topeka&state=KS``
+
+Using the Python client:
+
+.. code-block:: python
+
+    results = scout.get_index(
+        'contacts-index',
+        q='*',
+        city__in='Lawrence,Topeka',
+        state='KS')
 
 Scout will take all filters and return only those records that match all of the
 given conditions. However, when the same key is used multiple times, Scout will
@@ -346,6 +424,12 @@ the string *"test"* in the ``photos``, ``articles`` and ``videos`` indexes.
 .. code-block:: console
 
     $ curl localhost:8000/documents/?q=test&index=photos&index=articles&index=videos
+
+Using the Python client:
+
+.. code-block:: python
+
+    results = scout.get_documents(q='test', index=['photos', 'articles', 'videos'])
 
 Response:
 
@@ -424,6 +508,20 @@ Example ``POST`` request creating a new document:
         -d '{"content": "New document", "indexes": ["test-index"]}' \
         http://localhost:8000/documents/
 
+Using the Python client:
+
+.. code-block:: python
+
+    doc = scout.create_document('New document', 'test-index')
+
+    # With multiple indexes, an identifier, and metadata:
+    doc = scout.create_document(
+        'New document',
+        ['test-index', 'blog'],
+        identifier='my-doc-1',
+        author='somebody',
+        published='true')
+
 Response on creating a new document:
 
 .. code-block:: javascript
@@ -472,6 +570,12 @@ Example ``GET`` request and response:
 
     $ curl localhost:8000/documents/118/
 
+Using the Python client:
+
+.. code-block:: python
+
+    doc = scout.get_document(118)
+
 Response:
 
 .. code-block:: javascript
@@ -497,6 +601,23 @@ Here is an example of updating the content and indexes using a ``POST`` request:
         -H "Content-Type: application/json" \
         -d '{"content": "test zaizee updated", "indexes": ["test-index", "blog"]}' \
         http://localhost:8000/documents/118/
+
+Using the Python client:
+
+.. code-block:: python
+
+    updated = scout.update_document(
+        document_id=118,
+        content='test zaizee updated',
+        indexes=['test-index', 'blog'])
+
+    # Update metadata only (replaces all existing metadata):
+    updated = scout.update_document(
+        document_id=118,
+        metadata={'is_kitty': 'yes', 'color': 'gray'})
+
+    # Clear all metadata:
+    updated = scout.update_document(document_id=118, metadata={})
 
 Response:
 
@@ -524,6 +645,12 @@ Example ``DELETE`` request and response:
 
   $ curl -X DELETE localhost:8000/documents/121/
 
+Using the Python client:
+
+.. code-block:: python
+
+    scout.delete_document(121)
+
 Response:
 
 .. code-block:: javascript
@@ -547,6 +674,12 @@ Example ``GET`` request and response.
 .. code-block:: console
 
     $ curl localhost:8000/documents/13/attachments/?ordering=timestamp
+
+Using the Python client:
+
+.. code-block:: python
+
+    attachments = scout.get_attachments(13, ordering='timestamp')
 
 Response:
 
@@ -592,6 +725,22 @@ Example ``POST`` request uploading a new attachment:
         -X POST \
         http://localhost:8000/documents/13/attachments/
 
+Using the Python client:
+
+.. code-block:: python
+
+    from io import BytesIO
+
+    result = scout.attach_files(13, {
+        'image.jpg': open('/path/to/image.jpg', 'rb'),
+    })
+
+    # Multiple files at once:
+    result = scout.attach_files(13, {
+        'photo.jpg': open('/path/to/photo.jpg', 'rb'),
+        'notes.txt': BytesIO(b'Some notes about this document'),
+    })
+
 Response on creating a new attachment:
 
 .. code-block:: javascript
@@ -611,6 +760,19 @@ Response on creating a new attachment:
 
 .. note:: You can upload multiple attachments at the same time.
 
+Attachments can also be included when creating or updating a document:
+
+.. code-block:: python
+
+    doc = scout.create_document(
+        'Document with files',
+        'my-index',
+        attachments={
+            'readme.txt': BytesIO(b'Read me!'),
+            'data.csv': open('/path/to/data.csv', 'rb'),
+        },
+        author='alice')
+
 .. _attachment_detail:
 
 Attachment detail: "/documents/:document-id/attachments/:filename/"
@@ -628,6 +790,12 @@ Example ``GET`` request and response:
 
     $ curl localhost:8000/documents/13/attachments/test-image.png/
 
+Using the Python client:
+
+.. code-block:: python
+
+    attachment = scout.get_attachment(13, 'test-image.png')
+
 Response:
 
 .. code-block:: javascript
@@ -641,6 +809,23 @@ Response:
       "timestamp": "2016-03-14 22:10:00"
     }
 
+Example of updating (replacing) an attachment:
+
+.. code-block:: console
+
+    $ curl \
+        -H "Content-Type: multipart/form-data" \
+        -F 'data=""' \
+        -F "file_0=@/path/to/new-image.png" \
+        -X POST \
+        http://localhost:8000/documents/13/attachments/test-image.png/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.update_file(13, 'test-image.png', open('/path/to/new-image.png', 'rb'))
+
 ``DELETE`` requests are used to **detach** a file from a document.
 
 Example ``DELETE`` request and response:
@@ -648,6 +833,12 @@ Example ``DELETE`` request and response:
 .. code-block:: console
 
   $ curl -X DELETE localhost:8000/documents/13/attachments/test-image.png/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.detach_file(13, 'test-image.png')
 
 Response:
 
@@ -669,6 +860,16 @@ To download an attachment, simply send a ``GET`` request to the attachment's "da
 .. code-block:: console
 
     $ curl http://localhost:8000/documents/13/attachments/banner.jpg/download/
+
+Using the Python client:
+
+.. code-block:: python
+
+    raw_bytes = scout.download_attachment(13, 'banner.jpg')
+
+    # Save to a file:
+    with open('banner.jpg', 'wb') as fh:
+        fh.write(raw_bytes)
 
 .. _global_attachment_list:
 
@@ -692,6 +893,12 @@ Example ``GET`` request and response:
 .. code-block:: console
 
     $ curl localhost:8000/attachments/?mimetype=image/jpeg
+
+Using the Python client:
+
+.. code-block:: python
+
+    results = scout.search_attachments(mimetype='image/jpeg')
 
 Response:
 
@@ -720,6 +927,15 @@ Example filtering by index:
 .. code-block:: console
 
     $ curl localhost:8000/attachments/?index=blog&index=photos
+
+Using the Python client:
+
+.. code-block:: python
+
+    results = scout.search_attachments(index='blog')
+
+    # Filter by index and filename:
+    results = scout.search_attachments(index='blog', filename='header.png')
 
 This will return all attachments belonging to documents in the ``blog`` or ``photos`` indexes.
 
@@ -763,6 +979,14 @@ Alternatively, the key can be specified as a ``GET`` argument:
     {
       "indexes": []
     }
+
+Using the Python client, the key is passed when initializing the client and is
+automatically included with every request:
+
+.. code-block:: python
+
+    scout = Scout('http://localhost:8000', key='secret')
+    indexes = scout.get_indexes()  # Key is sent automatically.
 
 .. _command-line-options:
 
@@ -817,7 +1041,9 @@ The following options can be overridden:
 * ``SQLITE_PRAGMAS``, a list of 2-tuples specifying SQLite pragmas to set on the database connection (e.g. ``[('journal_mode', 'wal'), ('cache_size', -65536)]``).
 * ``MAX_CONTENT_LENGTH``, maximum request body size in bytes (same as ``-m`` or ``--max-request-size``).
 
-.. note:: Options specified on the command-line will override any options specified in the configuration file.
+.. note::
+    Options specified on the command-line will override any options specified
+    in the configuration file.
 
 Example configuration file:
 
