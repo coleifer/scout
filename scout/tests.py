@@ -2,15 +2,13 @@ import json
 import optparse
 import sys
 import unittest
-try:
-    from urllib.parse import urlencode
-except ImportError:
-    from urllib import urlencode
 from io import BytesIO
+from urllib.parse import urlencode
 
 from playhouse.sqlite_ext import *
 from playhouse.test_utils import assert_query_count
 
+from scout.client import Scout
 from scout.constants import SEARCH_BM25
 from scout.exceptions import InvalidRequestException
 from scout.exceptions import InvalidSearchException
@@ -988,6 +986,407 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(json_load(resp.data)['indexes'], [{
             'id': 1, 'name': 'idx', 'document_count': 0, 'documents': '/idx/'
         }])
+
+
+class FlaskScout(Scout):
+    def __init__(self, flask_app, key=None):
+        self.flask_client = flask_app.test_client()
+        self.key = key
+        self.endpoint = ''
+
+    def _headers(self, extras=None):
+        headers = {}
+        if self.key:
+            headers['key'] = self.key
+        if extras:
+            headers.update(extras)
+        return headers
+
+    def get_raw(self, url, **kwargs):
+        if kwargs:
+            if '?' not in url:
+                url += '?'
+            url += urlencode(kwargs, True)
+        resp = self.flask_client.get(url, headers=self._headers())
+        return resp.data
+
+    def post_json(self, url, data=None):
+        resp = self.flask_client.post(
+            url,
+            data=json.dumps(data or {}),
+            headers=self._headers({'Content-Type': 'application/json'}))
+        return json_load(resp.data)
+
+    def post_files(self, url, json_data, files=None):
+        form_data = {'data': json.dumps(json_data or {})}
+        for i, (filename, file_obj) in enumerate(files.items()):
+            try:
+                raw = file_obj.read()
+            except AttributeError:
+                raw = bytes(file_obj)
+            form_data['file_%s' % i] = (BytesIO(raw), filename)
+        resp = self.flask_client.post(url, data=form_data,
+                                      headers=self._headers())
+        return json_load(resp.data)
+
+    def delete(self, url):
+        resp = self.flask_client.delete(url, headers=self._headers())
+        return json_load(resp.data)
+
+
+class TestScoutClient(BaseTestCase):
+    def setUp(self):
+        super(TestScoutClient, self).setUp()
+        app.config['AUTHENTICATION'] = None
+        self.scout = FlaskScout(app)
+
+    def test_create_get_indexes(self):
+        self.scout.create_index('idx-a')
+        self.scout.create_index('idx-b')
+        indexes = self.scout.get_indexes()
+        names = [idx['name'] for idx in indexes]
+        self.assertEqual(sorted(names), ['idx-a', 'idx-b'])
+
+    def test_get_index_detail(self):
+        self.scout.create_index('my-idx')
+        detail = self.scout.get_index('my-idx')
+        self.assertEqual(detail['name'], 'my-idx')
+        self.assertEqual(detail['document_count'], 0)
+        self.assertEqual(detail['page'], 1)
+        self.assertEqual(detail['pages'], 0)
+
+    def test_rename_index(self):
+        self.scout.create_index('old-name')
+        result = self.scout.rename_index('old-name', 'new-name')
+        self.assertEqual(result['name'], 'new-name')
+        names = [idx['name'] for idx in self.scout.get_indexes()]
+        self.assertEqual(names, ['new-name'])
+
+    def test_delete_index(self):
+        self.scout.create_index('doomed')
+        self.scout.delete_index('doomed')
+        self.assertEqual(self.scout.get_indexes(), [])
+
+    def test_delete_index_preserves_documents(self):
+        self.scout.create_index('idx')
+        self.scout.create_document('hello world', 'idx')
+        self.scout.delete_index('idx')
+        self.assertEqual(Document.select().count(), 1)
+
+    def test_create_document_single_index(self):
+        idx = self.scout.create_index('idx')
+        doc = self.scout.create_document('test content', 'idx', k1='v1')
+        self.assertEqual(doc['content'], 'test content')
+        self.assertEqual(doc['indexes'], ['idx'])
+        self.assertEqual(doc['metadata'], {'k1': 'v1'})
+
+        self.assertEqual(self.scout.get_index('idx'), {
+            'document_count': 1,
+            'documents': [doc],
+            'filtered_count': 1,
+            'filters': {},
+            'id': idx['id'],
+            'name': 'idx',
+            'ordering': [],
+            'page': 1,
+            'pages': 1})
+
+    def test_create_document_multiple_indexes(self):
+        self.scout.create_index('a')
+        self.scout.create_index('b')
+        doc = self.scout.create_document('multi', ['a', 'b'])
+        self.assertEqual(sorted(doc['indexes']), ['a', 'b'])
+
+        rdoc = self.scout.get_document(doc['id'])
+        self.assertEqual(doc, rdoc)
+
+    def test_create_document_with_identifier(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('content', 'idx',
+                                         identifier='custom-id')
+        self.assertEqual(doc['identifier'], 'custom-id')
+
+    def test_get_document(self):
+        self.scout.create_index('idx')
+        created = self.scout.create_document('hello', 'idx')
+        fetched = self.scout.get_document(created['id'])
+        self.assertEqual(fetched['content'], 'hello')
+        self.assertEqual(fetched['id'], created['id'])
+
+    def test_update_document_content(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('original', 'idx')
+
+        updated = self.scout.update_document(
+            document_id=doc['id'], content='modified')
+        self.assertEqual(updated['content'], 'modified')
+
+        fetched = self.scout.get_document(doc['id'])
+        self.assertEqual(fetched['content'], 'modified')
+
+    def test_update_document_metadata(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('text', 'idx', color='red')
+        self.assertEqual(doc['metadata'], {'color': 'red'})
+        updated = self.scout.update_document(
+            document_id=doc['id'], metadata={'color': 'blue', 'size': 'lg'})
+        self.assertEqual(updated['metadata'], {'color': 'blue', 'size': 'lg'})
+
+        fetched = self.scout.get_document(document_id=doc['id'])
+        self.assertEqual(fetched['metadata'], updated['metadata'])
+
+    def test_update_document_clear_metadata(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('text', 'idx', foo='bar')
+        updated = self.scout.update_document(
+            document_id=doc['id'], metadata={})
+        self.assertEqual(updated['metadata'], {})
+
+        fetched = self.scout.get_document(document_id=doc['id'])
+        self.assertEqual(fetched['metadata'], {})
+
+    def test_update_document_indexes(self):
+        self.scout.create_index('a')
+        self.scout.create_index('b')
+        doc = self.scout.create_document('text', 'a')
+        self.assertEqual(doc['indexes'], ['a'])
+        updated = self.scout.update_document(
+            document_id=doc['id'], indexes=['a', 'b'])
+        self.assertEqual(sorted(updated['indexes']), ['a', 'b'])
+
+        fetched = self.scout.get_document(document_id=doc['id'])
+        self.assertEqual(sorted(fetched['indexes']), ['a', 'b'])
+
+    def test_delete_document(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('bye', 'idx')
+        result = self.scout.delete_document(doc['id'])
+        self.assertEqual(result, {'success': True})
+        self.assertEqual(Document.select().count(), 0)
+
+    def test_validate_docid_present(self):
+        # Need docid.
+        self.assertRaises(ValueError, self.scout.delete_document)
+
+        # Need docid.
+        self.assertRaises(ValueError, self.scout.get_document)
+
+        # Need docid.
+        self.assertRaises(ValueError, self.scout.update_document)
+
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('text', 'idx')
+
+        # Need data.
+        self.assertRaises(
+            ValueError,
+            self.scout.update_document,
+            document_id=doc['id'])
+
+    def test_get_documents_list(self):
+        self.scout.create_index('idx')
+        for i in range(3):
+            self.scout.create_document('doc %d' % i, 'idx')
+        result = self.scout.get_documents()
+        self.assertEqual(result['document_count'], 3)
+        self.assertEqual(result['page'], 1)
+        self.assertEqual(result['pages'], 1)
+        self.assertEqual(len(result['documents']), 3)
+
+        # Ensure results paginated.
+        for i in range(10):
+            self.scout.create_document('doc %d' % i, 'idx')
+
+        result = self.scout.get_documents()
+        self.assertEqual(result['document_count'], 13)
+        self.assertEqual(result['page'], 1)
+        self.assertEqual(result['pages'], 2)
+        self.assertEqual(len(result['documents']), 10)
+
+        # Get via index.
+        result = self.scout.get_index('idx')
+        self.assertEqual(result['document_count'], 13)
+        self.assertEqual(result['page'], 1)
+        self.assertEqual(result['pages'], 2)
+        self.assertEqual(len(result['documents']), 10)
+
+    def test_search_via_get_index(self):
+        self.scout.create_index('idx')
+        self.scout.create_document('alpha bravo charlie', 'idx')
+        self.scout.create_document('delta echo foxtrot', 'idx')
+        self.scout.create_document('bravo delta golf', 'idx')
+
+        results = self.scout.get_index('idx', q='bravo')
+        docs = results['documents']
+        self.assertEqual(len(docs), 2)
+        contents = sorted(d['content'] for d in docs)
+        self.assertEqual(contents, [
+            'alpha bravo charlie',
+            'bravo delta golf'])
+
+    def test_search_via_get_documents(self):
+        self.scout.create_index('a')
+        self.scout.create_index('b')
+        self.scout.create_document('apple banana', 'a')
+        self.scout.create_document('banana cherry', 'b')
+
+        results = self.scout.get_documents(q='banana')
+        self.assertEqual(len(results['documents']), 2)
+
+        results = self.scout.get_documents(q='banana', index='a')
+        self.assertEqual(len(results['documents']), 1)
+        self.assertEqual(results['documents'][0]['content'], 'apple banana')
+
+    def test_search_with_metadata_filter(self):
+        self.scout.create_index('idx')
+        self.scout.create_document('doc one', 'idx', color='red')
+        self.scout.create_document('doc two', 'idx', color='blue')
+        self.scout.create_document('doc three', 'idx', color='red')
+
+        results = self.scout.get_index('idx', q='doc', color='red')
+        self.assertEqual(sorted([d['content'] for d in results['documents']]),
+                         ['doc one', 'doc three'])
+
+    def test_search_with_ranking(self):
+        self.scout.create_index('idx')
+        self.scout.create_document('foo bar baz', 'idx')
+        self.scout.create_document('foo foo foo', 'idx')
+
+        results = self.scout.get_index('idx', q='foo', ranking='bm25')
+        self.assertEqual(len(results['documents']), 2)
+        for doc in results['documents']:
+            self.assertIn('score', doc)
+
+        results = self.scout.get_index('idx', q='foo', ranking='none')
+        for doc in results['documents']:
+            self.assertNotIn('score', doc)
+
+    def test_attach_and_get_attachments(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('with file', 'idx')
+        doc_id = doc['id']
+
+        result = self.scout.attach_files(doc_id, {
+            'hello.txt': BytesIO(b'hello world'),
+        })
+        self.assertEqual(len(result['attachments']), 1)
+        self.assertEqual(result['attachments'][0]['filename'], 'hello.txt')
+
+        attachments = self.scout.get_attachments(doc_id)
+        self.assertEqual(len(attachments['attachments']), 1)
+        att, = attachments['attachments']
+        self.assertEqual(att['filename'], 'hello.txt')
+        self.assertEqual(att['document'], '/documents/%d/' % doc_id)
+        self.assertEqual(att['mimetype'], 'text/plain')
+
+    def test_get_attachment_detail(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('doc', 'idx')
+        self.scout.attach_files(doc['id'], {'pic.png': BytesIO(b'PNG\x00')})
+
+        detail = self.scout.get_attachment(doc['id'], 'pic.png')
+        self.assertEqual(detail['filename'], 'pic.png')
+        self.assertEqual(detail['mimetype'], 'image/png')
+
+    def test_download_attachment(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('doc', 'idx')
+        content = b'raw file bytes here\x00\x00\xff\xff'
+        self.scout.attach_files(doc['id'], {'data.bin': BytesIO(content)})
+
+        downloaded = self.scout.download_attachment(doc['id'], 'data.bin')
+        self.assertEqual(downloaded, content)
+
+    def test_detach_file(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('doc', 'idx')
+        self.scout.attach_files(doc['id'], {'f.txt': BytesIO(b'x')})
+        self.assertEqual(Attachment.select().count(), 1)
+
+        result = self.scout.detach_file(doc['id'], 'f.txt')
+        self.assertEqual(result, {'success': True})
+        self.assertEqual(Attachment.select().count(), 0)
+
+    def test_update_file(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('doc', 'idx')
+        self.scout.attach_files(doc['id'], {'f.txt': BytesIO(b'old\xff')})
+
+        self.scout.update_file(doc['id'], 'f.txt', BytesIO(b'new\xff'))
+        downloaded = self.scout.download_attachment(doc['id'], 'f.txt')
+        self.assertEqual(downloaded, b'new\xff')
+
+    def test_create_document_with_attachments(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document(
+            'with attachment', 'idx',
+            attachments={'readme.txt': BytesIO(b'read me')})
+        self.assertEqual(len(doc['attachments']), 1)
+        self.assertEqual(doc['attachments'][0]['filename'], 'readme.txt')
+
+    def test_authentication_key_sent(self):
+        app.config['AUTHENTICATION'] = 'my-secret'
+        try:
+            authed = FlaskScout(app, key='my-secret')
+            authed.create_index('secure-idx')
+            indexes = authed.get_indexes()
+            self.assertEqual(len(indexes), 1)
+
+            # Without key, should get 401 — the raw response is not JSON.
+            no_key = FlaskScout(app, key=None)
+            raw = no_key.get_raw('/')
+            self.assertIn(b'Invalid API key', raw)
+        finally:
+            app.config['AUTHENTICATION'] = None
+
+    def test_endpoint_normalization(self):
+        from scout.client import Scout
+        s1 = Scout('http://example.com/')
+        self.assertEqual(s1.endpoint, 'http://example.com')
+
+        s2 = Scout('http://example.com///')
+        self.assertEqual(s2.endpoint, 'http://example.com')
+
+        s3 = Scout('example.com:8000')
+        self.assertEqual(s3.endpoint, 'http://example.com:8000')
+
+    def test_full_lifecycle(self):
+        self.scout.create_index('blog')
+
+        doc = self.scout.create_document(
+            'Python is great for web development',
+            'blog',
+            author='alice',
+            published='true')
+        doc_id = doc['id']
+
+        # Search finds it.
+        results = self.scout.get_index('blog', q='python')
+        self.assertEqual(len(results['documents']), 1)
+
+        # Update content.
+        self.scout.update_document(
+            document_id=doc_id,
+            content='Python is excellent for web development')
+
+        # Search with new term finds it.
+        results = self.scout.get_index('blog', q='excellent')
+        self.assertEqual(len(results['documents']), 1)
+
+        # Old term still matches (stemming/FTS).
+        results = self.scout.get_index('blog', q='python')
+        self.assertEqual(len(results['documents']), 1)
+
+        # Metadata filter works.
+        results = self.scout.get_index('blog', q='python', author='alice')
+        self.assertEqual(len(results['documents']), 1)
+        results = self.scout.get_index('blog', q='python', author='bob')
+        self.assertEqual(len(results['documents']), 0)
+
+        # Delete.
+        self.scout.delete_document(doc_id)
+        results = self.scout.get_index('blog', q='python')
+        self.assertEqual(len(results['documents']), 0)
 
 
 def main():
