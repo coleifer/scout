@@ -1539,8 +1539,7 @@ class TestScoutClient(BaseTestCase):
     def test_update_document_by_identifier(self):
         self.scout.create_index('idx')
         doc = self.scout.create_document('text', 'idx', identifier='my-id')
-        updated = self.scout.update_document(
-            identifier='my-id', content='updated text')
+        updated = self.scout.update_document('my-id', content='updated text')
         self.assertEqual(updated['content'], 'updated text')
         self.assertEqual(updated['identifier'], 'my-id')
 
@@ -1593,9 +1592,6 @@ class TestScoutClient(BaseTestCase):
 
         # Need docid.
         self.assertRaises(ValueError, self.scout.get_document)
-
-        # Need docid.
-        self.assertRaises(ValueError, self.scout.update_document)
 
         self.scout.create_index('idx')
         doc = self.scout.create_document('text', 'idx')

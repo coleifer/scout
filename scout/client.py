@@ -168,11 +168,8 @@ class Scout(object):
             'metadata': metadata}
         return self.post('/documents/', post_data, attachments)
 
-    def update_document(self, document_id=None, content=None, indexes=None,
+    def update_document(self, document_id, content=None, indexes=None,
                         metadata=None, identifier=None, attachments=None):
-        if not document_id and not identifier:
-            raise ValueError('`document_id` must be provided.')
-
         data = {}
         if content is not None:
             data['content'] = content
@@ -188,8 +185,7 @@ class Scout(object):
         if not data and not attachments:
             raise ValueError('Nothing to update.')
 
-        return self.post('/documents/%s/' % (document_id or identifier),
-                         data, attachments)
+        return self.post('/documents/%s/' % (document_id), data, attachments)
 
     def delete_document(self, document_id=None):
         if not document_id:

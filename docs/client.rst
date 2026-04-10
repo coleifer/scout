@@ -72,15 +72,15 @@ Scout comes with a simple Python client. This document describes the client API.
         :param attachments: An optional mapping of filename to file-like object, which should be uploaded and stored as attachments on the given document.
         :param metadata: Arbitrary key/value pairs to store alongside the document content.
 
-    .. py:method:: update_document([document_id=None[, content=None[, indexes=None[, metadata=None[, identifier=None[, attachments=None]]]]]])
+    .. py:method:: update_document(document_id[, content=None[, indexes=None[, metadata=None[, identifier=None[, attachments=None]]]]])
 
         Update one or more attributes of a document that's stored in the database.
 
-        :param document_id: The integer document ID, or a string identifier. At least one of ``document_id`` or ``identifier`` must be provided.
+        :param document_id: The integer document ID or a string identifier for the document to update.
         :param str content: Text content to expose for search (optional).
         :param indexes: Either the name of an index or a list of index names (optional).
         :param metadata: Arbitrary key/value pairs to store alongside the document content (optional).
-        :param identifier: Optional alternative user-defined identifier for document.
+        :param identifier: Set or change the document's identifier. This only updates the stored identifier - it is not used for looking up the document (use ``document_id`` for that).
         :param attachments: An optional mapping of filename to file-like object, which should be uploaded and stored as attachments on the given document. If a filename already exists, it will be over-written with the new attachment.
 
         .. note:: If you specify metadata when updating a document, existing metadata will be replaced by the new metadata. To simply clear out the metadata for an existing document, pass an empty ``dict``.
