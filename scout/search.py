@@ -1,7 +1,4 @@
-try:
-    from functools import reduce
-except ImportError:
-    pass
+from functools import reduce
 import operator
 
 from peewee import fn

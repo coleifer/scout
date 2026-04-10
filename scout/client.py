@@ -91,9 +91,13 @@ class Scout(object):
         if self.key:
             headers['key'] = self.key
 
-        data = '\r\n'.join(parts)
-        if not isinstance(data, bytes):
-            data = data.encode('utf-8')
+        accum = []
+        for part in parts:
+            if isinstance(part, bytes):
+                accum.append(part)
+            else:
+                accum.append(part.encode('utf8'))
+        data = b'\r\n'.join(accum)
 
         request = Request(self.get_full_url(url), data=data, headers=headers)
         return json.loads(urlopen(request).read())
@@ -150,6 +154,8 @@ class Scout(object):
             data['indexes'] = indexes
         if metadata is not None:
             data['metadata'] = metadata
+        if identifier is not None:
+            data['identifier'] = identifier
 
         if not data and not attachments:
             raise ValueError('Nothing to update.')

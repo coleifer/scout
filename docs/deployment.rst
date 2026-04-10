@@ -68,7 +68,7 @@ Here is an example wrapper script for uWSGI.
 .. code-block:: python
 
     # Wrapper script to initialize database.
-    from scout import parse_options
+    from scout.server import parse_options
     app = parse_options()
 
 Here is how you might run using the above wrapper script:

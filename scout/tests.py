@@ -253,6 +253,14 @@ class TestSearch(BaseTestCase):
         self.assertEqual([d['metadata']['k1'] for d in results['documents']],
                          ['k1-1'] * 10)
 
+    def test_search_with_ranking_not_treated_as_metadata(self):
+        self.populate()
+        # 'ranking' is not passed into _build_filter_expression, so the results
+        # work as expected.
+        results = self.search('default', 'testing', ranking='bm25', page=1)
+        self.assertTrue(len(results['documents']) > 0)
+
+
 class TestModelAPIs(BaseTestCase):
     def setUp(self):
         super(TestModelAPIs, self).setUp()
