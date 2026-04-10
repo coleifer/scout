@@ -6,7 +6,17 @@ This document describes changes to Scout from one release to another.
 
 * Add `scout.gevent_server` implementation of Scout using gevent for the WSGI
   server.
+* Add new `Attachment`-only endpoint for querying all attachments
+  (`/attachments/`).
+* Improve client multipart upload implementation and use `requests` for
+  handling those if available.
+* Ensure orphaned BlobData (content-addressable attachment storage) is cleaned
+  up properly.
+* Include `next_url` and `previous_url` for all paginated response types.
 * Set base URL to default to http://localhost:8000 for Scout client.
+* Improved documentation and test coverage, fixed several longstanding bugs.
+* Support for latest version of Peewee.
+* Removed Python 2.x compat.
 
 ### 3.0.4
 
