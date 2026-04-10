@@ -1890,6 +1890,13 @@ class FTS5TestCase(BaseTestCase):
                    engine.search(phrase, index=self.index, ranking=ranking)]
         self.assertEqual(results, [self.corpus[i] for i in expected_indexes])
 
+    def assertHTTPResults(self, phrase, expected_indexes, **params):
+        data, status = self._http_search(phrase, **params)
+        self.assertEqual(status, 200)
+        self.assertEqual(self._contents(data),
+                         [self.corpus[i] for i in expected_indexes])
+        return data
+
 
 class TestScopeToContent(FTS5TestCase):
     """
@@ -1942,8 +1949,6 @@ class TestFTSQueries(FTS5TestCase):
         self.assertCorpusResults('believe', [3, 0])
         self.assertCorpusResults('faith man', [0])
         self.assertCorpusResults('faith thing', [4, 2])
-
-        # No result.
         self.assertCorpusResults('blah', [])
 
         # Case sensitivity.
@@ -1956,13 +1961,6 @@ class TestFTSQueries(FTS5TestCase):
     def test_wildcard_returns_all(self):
         results = self._search('*')
         self.assertEqual(len(results), 5)
-
-    def test_http_simple_term(self):
-        data, status = self._http_search('believe')
-        self.assertEqual(status, 200)
-        self.assertEqual(len(data['documents']), 2)
-        self.assertEqual(data['search_term'], 'believe')
-        self.assertEqual(data['ranking'], 'bm25')
 
     def test_or(self):
         self.assertCorpusResults('man OR hope', [0, 4])
@@ -1985,15 +1983,6 @@ class TestFTSQueries(FTS5TestCase):
     def test_combined_boolean(self):
         self.assertCorpusResults('(man OR hope) NOT believe', [4])
 
-    def test_http_or(self):
-        data, _ = self._http_search('man OR hope')
-        self.assertEqual(len(data['documents']), 2)
-
-    def test_http_not(self):
-        data, _ = self._http_search('believe NOT nothing')
-        self.assertEqual(len(data['documents']), 1)
-        self.assertEqual(data['documents'][0]['content'], self.corpus[3])
-
     def test_exact_phrase(self):
         self.assertCorpusResults('"true faith"', [1])
         self.assertCorpusResults('"small things"', [2])
@@ -2003,38 +1992,22 @@ class TestFTSQueries(FTS5TestCase):
         self.assertCorpusResults('"true faith" OR "small things"', [2, 1])
         self.assertCorpusResults('"true faith" heart', [1])
 
-    def test_http_phrase(self):
-        data, _ = self._http_search('"true faith"')
-        self.assertEqual(len(data['documents']), 1)
-
-    def test_prefix_fa(self):
+    def test_prefix(self):
         self.assertCorpusResults('fa*', [2, 3, 0, 4, 1])
         self.assertCorpusResults('beli*', [3, 0])
         self.assertCorpusResults('fa* NOT hope', [2, 3, 0, 1])
         self.assertCorpusResults('xyz*', [])
 
-    def test_http_prefix(self):
-        data, _ = self._http_search('beli*')
-        self.assertEqual(len(data['documents']), 2)
-
-    def test_near_default_distance(self):
+    def test_near(self):
         self.assertCorpusResults('NEAR(faith man)', [0])
         self.assertCorpusResults('NEAR(true faith, 1)', [1])
         self.assertCorpusResults('NEAR(call desired, 2)', [])
         self.assertCorpusResults('NEAR(call desired, 25)', [1])
 
-    def test_http_near(self):
-        data, _ = self._http_search('NEAR(true faith, 1)')
-        self.assertEqual(len(data['documents']), 1)
-
-    def test_initial_token_match(self):
+    def test_initial_token(self):
         self.assertCorpusResults('^faith', [3, 4])
         self.assertCorpusResults('^hope', [])
         self.assertCorpusResults('^a', [0])
-
-    def test_http_initial_token(self):
-        data, _ = self._http_search('^faith')
-        self.assertEqual(len(data['documents']), 2)
 
     def test_stemming(self):
         for s in ('believe', 'believes', 'believing'):
@@ -2053,12 +2026,9 @@ class TestFTSQueries(FTS5TestCase):
         self.assertCorpusResults('NEAR(faith man, 5) OR hope', [0, 4])
         self.assertCorpusResults('^faith AND thing', [4])
 
-    def test_http_complex(self):
-        data, _ = self._http_search('(hope OR man) AND faith')
-        self.assertEqual(len(data['documents']), 2)
-
     def test_bm25_ordering(self):
-        results = engine.search('believe', index=self.index, ranking=SEARCH_BM25)
+        results = engine.search(
+            'believe', index=self.index, ranking=SEARCH_BM25)
         results = list(results)
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0].content, self.corpus[3])
@@ -2071,14 +2041,14 @@ class TestFTSQueries(FTS5TestCase):
         for doc in data['documents']:
             self.assertNotIn('score', doc)
 
-    def test_http_scores_present(self):
+    def test_http_scores(self):
         data, _ = self._http_search('believe')
         for doc in data['documents']:
             self.assertIn('score', doc)
             self.assertIsInstance(doc['score'], float)
 
-    def test_ordering_by_score(self):
-        # By default sorted by score.
+    def test_ordering(self):
+        # Default: sorted by score ascending (most negative = best).
         data, _ = self._http_search('faith')
         scores = [d['score'] for d in data['documents']]
         self.assertEqual(scores, sorted(scores))
@@ -2087,7 +2057,6 @@ class TestFTSQueries(FTS5TestCase):
         scores = [d['score'] for d in data['documents']]
         self.assertEqual(scores, sorted(scores, reverse=True))
 
-    def test_ordering_by_data(self):
         data, _ = self._http_search('faith', ordering='id')
         ids = [d['id'] for d in data['documents']]
         self.assertEqual(ids, sorted(ids))
@@ -2099,6 +2068,21 @@ class TestFTSQueries(FTS5TestCase):
         data, _ = self._http_search('faith', ordering='content')
         contents = self._contents(data)
         self.assertEqual(contents, sorted(contents))
+
+    def test_http_queries(self):
+        self.assertHTTPResults('believe', [3, 0])
+        self.assertHTTPResults('man OR hope', [0, 4])
+        self.assertHTTPResults('believe NOT nothing', [3])
+        self.assertHTTPResults('"true faith"', [1])
+        self.assertHTTPResults('beli*', [3, 0])
+        self.assertHTTPResults('NEAR(true faith, 1)', [1])
+        self.assertHTTPResults('^faith', [3, 4])
+        self.assertHTTPResults('(hope OR man) AND faith', [0, 4])
+
+    def test_http_response_metadata(self):
+        data = self.assertHTTPResults('believe', [3, 0])
+        self.assertEqual(data['search_term'], 'believe')
+        self.assertEqual(data['ranking'], 'bm25')
 
 
 class TestFTS5ErrorHandling(FTS5TestCase):
@@ -2171,39 +2155,34 @@ class TestFTS5WithMetadataFilters(FTS5TestCase):
     def setUp(self):
         super().setUp()
         topics = ['virtue', 'prayer', 'virtue', 'philosophy', 'philosophy']
-        authors = ['hugo', 'luther', 'teresa', 'voltaire', 'unknown']
+        other = ['alpha', 'beta', 'gamma', 'delta', 'epsilon']
         for i, content in enumerate(self.corpus):
-            self._add(content, topic=topics[i], author=authors[i])
+            self._add(content, topic=topics[i], other=other[i])
 
-    def test_search_with_eq_filter(self):
+    def test_filters(self):
         results = self._search('faith', topic='virtue')
         self.assertEqual(len(results), 2)
 
-    def test_search_with_multiple_filters(self):
-        results = self._search('faith', topic='virtue', author='hugo')
+        results = self._search('faith', topic='virtue', other='alpha')
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0], self.corpus[0])
 
-    def test_search_with_ne_filter(self):
-        results = self._search('believe', author__ne='hugo')
+        results = self._search('believe', other__ne='alpha')
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0], self.corpus[3])
 
-    def test_search_with_in_filter(self):
         results = self._search('faith', topic__in='virtue,prayer')
         self.assertEqual(len(results), 3)
 
-    def test_search_with_contains_filter(self):
         results = self._search('faith', topic__contains='philos')
         self.assertEqual(len(results), 2)
 
-    def test_http_search_with_filter(self):
+    def test_http_filters(self):
         data, _ = self._http_search('faith', topic='virtue')
         self.assertEqual(len(data['documents']), 2)
         self.assertEqual(data['filters'], {'topic': ['virtue']})
 
-    def test_http_search_with_multiple_filters(self):
-        data, _ = self._http_search('faith', topic='virtue', author='hugo')
+        data, _ = self._http_search('faith', topic='virtue', other='alpha')
         self.assertEqual(len(data['documents']), 1)
         self.assertEqual(data['documents'][0]['content'], self.corpus[0])
 
@@ -2259,20 +2238,14 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
         data, _ = self._http_search('testing')
         self.assertEqual(data['filtered_count'], 25)
         self.assertEqual(len(data['documents']), 10)
+        self.assertEqual(data['search_term'], 'testing')
+        self.assertEqual(data['ranking'], 'bm25')
 
     def test_filtered_count(self):
         data, _ = self._http_search('testing', idx='5')
         self.assertEqual(data['filtered_count'], 1)
 
-    def test_search_term_in_response(self):
-        data, _ = self._http_search('testing')
-        self.assertEqual(data['search_term'], 'testing')
-
-    def test_ranking_in_response(self):
-        data, _ = self._http_search('testing')
-        self.assertEqual(data['ranking'], 'bm25')
-
-    def test_ranking_none_in_response(self):
+    def test_ranking_none(self):
         data, _ = self._http_search('testing', ranking='none')
         self.assertEqual(data['ranking'], 'none')
 
@@ -2280,7 +2253,7 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
         data, status = self._http_search('testing', ranking='invalid')
         self.assertEqual(status, 400)
 
-    def test_documents_endpoint_search(self):
+    def test_documents_endpoint(self):
         data, status = self._http_search_docs('testing')
         self.assertEqual(status, 200)
         self.assertEqual(data['filtered_count'], 25)
