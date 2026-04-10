@@ -103,7 +103,7 @@ class DocumentSearch(object):
             sort_default = 'score'
 
             # Add score to the selected columns.
-            query = query.select(*query._returning + [rank.alias('score')])
+            query = query.select_extend(rank.alias('score'))
 
         return self.apply_sorting(query, ordering, sort_options, sort_default)
 
