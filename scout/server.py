@@ -10,6 +10,7 @@ from scout.exceptions import InvalidRequestException
 from scout.models import database
 from scout.models import Attachment
 from scout.models import BlobData
+from scout.models import DocLookup
 from scout.models import Document
 from scout.models import Index
 from scout.models import IndexDocument
@@ -64,6 +65,7 @@ def initialize_database(database_file, pragmas=None):
         database.create_tables([
             Attachment,
             BlobData,
+            DocLookup,
             Document,
             Index,
             IndexDocument,

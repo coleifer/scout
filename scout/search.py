@@ -26,13 +26,6 @@ class DocumentSearch(object):
 
         query = Document.select()
         if phrase != '*':
-            # Scope the MATCH to the content column only. The identifier
-            # column is used internally and should not be searchable.
-            # FTS5 column filter syntax: "column : (expression)"
-            # The parentheses ensure complex queries like "faith OR hope"
-            # are fully scoped: content : (faith OR hope)
-            # Without them: content : faith OR hope — only "faith" is
-            # scoped while "hope" searches all columns.
             try:
                 query = query.where(Document.match(phrase))
             except Exception:

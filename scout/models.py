@@ -124,6 +124,25 @@ class BaseModel(Model):
         database = database
 
 
+class DocLookup(BaseModel):
+    rowid = RowIDField()
+    identifier = TextField(unique=True)
+
+    @classmethod
+    def get_document(cls, pk):
+        if isinstance(pk, int) or pk.isdigit():
+            try:
+                return Document.all().where(Document.rowid == pk).get()
+            except Document.DoesNotExist:
+                pass
+
+        query = (Document
+                 .all()
+                 .join(DocLookup, on=(DocLookup.rowid == Document.rowid))
+                 .where(DocLookup.identifier == pk))
+        return query.get()
+
+
 class Attachment(BaseModel):
     """
     A mapping of a BLOB to a Document.
@@ -196,6 +215,10 @@ class Index(BaseModel):
             document = Document.create(
                 content=content,
                 identifier=identifier)
+            if identifier is not None:
+                DocLookup.replace(
+                    rowid=document.rowid,
+                    identifier=identifier).execute()
         else:
             del document.metadata
             nrows = (Document
@@ -204,6 +227,10 @@ class Index(BaseModel):
                          identifier=identifier)
                      .where(Document.rowid== document.rowid)
                      .execute())
+            if identifier is not None:
+                DocLookup.replace(
+                    rowid=document.rowid,
+                    identifier=identifier).execute()
 
         self.add_to_index(document)
         if metadata:

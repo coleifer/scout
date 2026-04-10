@@ -15,6 +15,7 @@ from scout.exceptions import InvalidSearchException
 from scout.models import Attachment
 from scout.models import BlobData
 from scout.models import database
+from scout.models import DocLookup
 from scout.models import Document
 from scout.models import Index
 from scout.models import IndexDocument
@@ -68,6 +69,7 @@ class BaseTestCase(unittest.TestCase):
         database.create_tables([
             Attachment,
             BlobData,
+            DocLookup,
             Document,
             Metadata,
             Index,
@@ -1932,10 +1934,10 @@ class TestScopeToContent(FTS5TestCase):
 
     def test_column_filter_injection(self):
         self._add('harmless content', identifier='secret data')
-        try:
-            results = self._search('identifier : secret')
-        except InvalidSearchException:
-            results = []
+        results = self._search('identifier : secret')
+        self.assertEqual(results, [])
+
+        results = self._search('x OR identifier : secret')
         self.assertEqual(results, [])
 
         # HTTP level: should be 200 with no results, or 400 if FTS5

@@ -24,6 +24,7 @@ from scout.exceptions import InvalidSearchException
 from scout.models import database
 from scout.models import Attachment
 from scout.models import BlobData
+from scout.models import DocLookup
 from scout.models import Document
 from scout.models import Index
 from scout.models import IndexDocument
@@ -286,13 +287,10 @@ class IndexView(ScoutView):
 class _FileProcessingView(ScoutView):
     @staticmethod
     def _get_document(pk):
-        if isinstance(pk, int) or (pk and pk.isdigit()):
-            query = Document.all().where(Document._meta.primary_key == pk)
-            try:
-                return query.get()
-            except Document.DoesNotExist:
-                pass
-        return get_object_or_404(Document.all(), Document.identifier == pk)
+        try:
+            return DocLookup.get_document(pk)
+        except Document.DoesNotExist:
+            abort(404)
 
     def attach_files(self, document):
         attachments = []
@@ -344,9 +342,15 @@ class DocumentView(_FileProcessingView):
             else:
                 return self.update(data['identifier'])
 
+        identifier = data.get('identifier')
         document = Document.create(
             content=data['content'],
-            identifier=data.get('identifier'))
+            identifier=identifier)
+
+        if identifier is not None:
+            DocLookup.replace(
+                rowid=document.rowid,
+                identifier=identifier).execute()
 
         if data.get('metadata'):
             document.metadata = data['metadata']
@@ -378,6 +382,8 @@ class DocumentView(_FileProcessingView):
             save_document = True
         if 'identifier' in data and data['identifier'] is not None:
             document.identifier = data['identifier']
+            DocLookup.replace(rowid=document.rowid,
+                              identifier=document.identifier).execute()
             save_document = True
 
         if save_document:
@@ -415,6 +421,11 @@ class DocumentView(_FileProcessingView):
                         .select(Attachment.hash)
                         .where(Attachment.document == document))
             attachment_hashes = [a.hash for a in attach_q]
+
+            (DocLookup
+             .delete()
+             .where(DocLookup.rowid == document.rowid)
+             .execute())
 
             (IndexDocument
              .delete()
