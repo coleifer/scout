@@ -16,10 +16,10 @@ lightweight components:
 * web application built with `flask <http://flask.pocoo.org>`_ framework
 
 Scout aims to be a lightweight, RESTful search server in the spirit of
-[ElasticSearch](https://www.elastic.co), powered by the SQLite full-text search
-extension. In addition to search, Scout can be used as a document database,
-supporting complex filtering operations. Arbitrary files can be attached to
-documents and downloaded through the REST API.
+`ElasticSearch <https://www.elastic.co>`_, powered by the SQLite full-text
+search extension. In addition to search, Scout can be used as a document
+database, supporting complex filtering operations. Arbitrary files can be
+attached to documents and downloaded through the REST API.
 
 Scout is simple to use, simple to deploy and *just works*.
 
@@ -34,6 +34,7 @@ Features
 * attach files or BLOBs to indexed documents.
 * multiple result ranking algorithms, porter stemmer.
 * besides full-text search, perform complex filtering based on metadata values.
+* global attachment search and filtering.
 * comprehensive unit-tests.
 * supports SQLite `FTS4 <http://sqlite.org/fts3.html>`_.
 
@@ -55,6 +56,7 @@ Contents:
    client
    deployment
    hacks
+   example
 
 
 Indices and tables
@@ -63,4 +65,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-

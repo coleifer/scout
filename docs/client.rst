@@ -7,7 +7,8 @@ Scout comes with a simple Python client. This document describes the client API.
 
 .. py:class:: Scout(endpoint[, key=None])
 
-    The :py:class:`Scout` class provides a simple, Pythonic API for interacting with and querying a Scout server.
+    The :py:class:`Scout` class provides a simple, Pythonic API for interacting
+    with and querying a Scout server.
 
     :param endpoint: The base URL the Scout server is running on.
     :param key: The authentication key (if used) required to access the Scout server.
@@ -18,6 +19,9 @@ Scout comes with a simple Python client. This document describes the client API.
 
         >>> from scout.client import Scout
         >>> scout = Scout('https://search.my-site.com/', key='secret!')
+
+    Index methods
+    -------------
 
     .. py:method:: get_indexes(**kwargs)
 
@@ -48,16 +52,19 @@ Scout comes with a simple Python client. This document describes the client API.
         :param q: full-text search query to be run over the documents in this index.
         :param ordering: columns to sort results by. By default, when you perform a search the results will be ordered by relevance.
         :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``simple`` or ``none``.
-        :param page: page number of results to retrieve
+        :param page: page number of results to retrieve.
         :param **filters: Arbitrary key/value pairs used to filter the metadata.
 
-        The :ref:`metadata_filters` section describes how to use key/value pairs t construct filters on the document's metadata.
+        The :ref:`metadata_filters` section describes how to use key/value pairs to construct filters on the document's metadata.
 
         See :ref:`index_detail` for more information.
 
+    Document methods
+    ----------------
+
     .. py:method:: create_document(content, indexes[, identifier=None[, attachments=None[, **metadata]]])
 
-        Store a document in the specified index(es).
+        Store a document in the specified index(es). If an ``identifier`` is provided and a document with that identifier already exists, the existing document will be updated.
 
         :param str content: Text content to expose for search.
         :param indexes: Either the name of an index or a list of index names.
@@ -69,7 +76,7 @@ Scout comes with a simple Python client. This document describes the client API.
 
         Update one or more attributes of a document that's stored in the database.
 
-        :param int document_id: The integer document ID (required).
+        :param int document_id: The integer document ID, or a string identifier. At least one of ``document_id`` or ``identifier`` must be provided.
         :param str content: Text content to expose for search (optional).
         :param indexes: Either the name of an index or a list of index names (optional).
         :param metadata: Arbitrary key/value pairs to store alongside the document content (optional).
@@ -80,7 +87,7 @@ Scout comes with a simple Python client. This document describes the client API.
 
     .. py:method:: delete_document(document_id)
 
-        Remove a document from the database, as well as all indexes.
+        Remove a document from the database, as well as all indexes, metadata, and attachments.
 
         :param int document_id: The integer document ID.
 
@@ -100,12 +107,15 @@ Scout comes with a simple Python client. This document describes the client API.
         :param ordering: columns to sort results by. By default, when you perform a search the results will be ordered by relevance.
         :param index: one or more index names to restrict the results to.
         :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``simple`` or ``none``.
-        :param page: page number of results to retrieve
+        :param page: page number of results to retrieve.
         :param **filters: Arbitrary key/value pairs used to filter the metadata.
 
-        The :ref:`metadata_filters` section describes how to use key/value pairs t construct filters on the document's metadata.
+        The :ref:`metadata_filters` section describes how to use key/value pairs to construct filters on the document's metadata.
 
         See :ref:`document_list` for more information.
+
+    Attachment methods
+    ------------------
 
     .. py:method:: attach_files(document_id, attachments)
 
@@ -138,7 +148,7 @@ Scout comes with a simple Python client. This document describes the client API.
         The following optional parameters are supported:
 
         :param ordering: columns to use when sorting attachments.
-        :param page: page number of results to retrieve
+        :param page: page number of results to retrieve.
 
         For more information, see :ref:`attachment_list`.
 
@@ -150,6 +160,121 @@ Scout comes with a simple Python client. This document describes the client API.
 
     .. py:method:: download_attachment(document_id, filename)
 
-        Download the specified attachment.
+        Download the specified attachment. Returns the raw file bytes.
 
         For more information, see :ref:`attachment_download`.
+
+    .. py:method:: search_attachments(**kwargs)
+
+        Search and filter attachments across all documents in the database.
+
+        The following optional parameters are supported:
+
+        :param ordering: columns to use when sorting attachments.
+        :param page: page number of results to retrieve.
+        :param index: restrict results to attachments on documents in the specified index.
+        :param filename: filter by exact filename.
+        :param mimetype: filter by exact MIME type.
+
+        For more information, see :ref:`global_attachment_list`.
+
+        Example:
+
+        .. code-block:: pycon
+
+            >>> results = scout.search_attachments(mimetype='image/jpeg')
+            >>> for attachment in results['attachments']:
+            ...     print(attachment['filename'])
+
+
+SearchProvider and SearchSite
+-----------------------------
+
+The client module also provides helper classes for integrating Scout with
+application models. These make it easy to automatically index and remove
+objects.
+
+.. py:class:: SearchProvider
+
+    Abstract base class that defines how to extract searchable data from an application object.
+
+    .. py:method:: content(obj)
+
+        Return the text content for the given object to be indexed for search. **Required.**
+
+    .. py:method:: identifier(obj)
+
+        Return a unique identifier string for the given object. Optional; if
+        not implemented, no identifier will be stored.
+
+    .. py:method:: metadata(obj)
+
+        Return a dictionary of metadata key/value pairs for the given object.
+        Optional; if not implemented, no metadata will be stored.
+
+.. py:class:: SearchSite(client, index)
+
+    Manages a registry of model classes and their search providers, and provides methods to store and remove objects from a Scout index.
+
+    :param client: A :py:class:`Scout` client instance.
+    :param index: The name of the index to use for all operations.
+
+    .. py:method:: register(model_class, search_provider)
+
+        Register a :py:class:`SearchProvider` subclass for the given model
+        class. Multiple providers can be registered for the same model class.
+
+        :param model_class: The class of objects to be indexed.
+        :param search_provider: A :py:class:`SearchProvider` subclass (not an instance).
+
+    .. py:method:: unregister(model_class[, search_provider=None])
+
+        Remove a search provider registration. If ``search_provider`` is
+        ``None``, all providers for the given model class are removed.
+
+        :param model_class: The class to unregister.
+        :param search_provider: Optional specific provider class to remove.
+
+    .. py:method:: store(obj)
+
+        Index the given object using all registered providers for its type.
+        Returns ``True`` if the object's type was registered, ``False``
+        otherwise.
+
+        :param obj: The object to index.
+
+    .. py:method:: remove(obj)
+
+        Remove the given object from the search index. Returns ``True`` if the
+        object's type was registered, ``False`` otherwise.
+
+        :param obj: The object to remove.
+
+    Example usage:
+
+    .. code-block:: python
+
+        from scout.client import Scout, SearchProvider, SearchSite
+
+        class BlogPostProvider(SearchProvider):
+            def content(self, post):
+                return '%s\n%s' % (post.title, post.body)
+
+            def identifier(self, post):
+                return str(post.id)
+
+            def metadata(self, post):
+                return {
+                    'title': post.title,
+                    'published': str(post.is_published),
+                }
+
+        scout = Scout('http://localhost:8000')
+        site = SearchSite(scout, 'blog-posts')
+        site.register(BlogPost, BlogPostProvider)
+
+        # Index a blog post.
+        site.store(my_post)
+
+        # Remove a blog post from the index.
+        site.remove(my_post)

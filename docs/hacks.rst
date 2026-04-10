@@ -1,20 +1,25 @@
- .. _hacks:
+.. _hacks:
 
 Hacks
 =====
 
-In this document you will find some of the hacks users of Scout have come up with to do novel things.
+In this document you will find some of the hacks users of Scout have come up
+with to do novel things.
 
-Most of these techniques involve wrapping the Scout server application with an additional module. Since Scout server is a normal Python module, and the WSGI app is just an object within that module, there is no magic needed to extend the behavior of Scout.
+Most of these techniques involve wrapping the Scout server application with an
+additional module. Since Scout server is a normal Python module, and the WSGI
+app is just an object within that module, there is no magic needed to extend
+the behavior of Scout.
 
 Adding CORS headers
 -------------------
 
-I wanted to be able to query my Scout index from JavaScript running on a different host. To get this working I needed to add some special headers to each response from the API (`more info on CORS <https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS>`_).
+To query a Scout index from JavaScript running on a different host, you need to
+add CORS headers to each response from the API (`more info on CORS
+<https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS>`_).
 
-To accomplish this I created a wrapper module that wraps the Scout server Flask app and implements a special ``after_request`` hook:
-
-Here is the wrapper module:
+To accomplish this, create a wrapper module that wraps the Scout server Flask
+app and implements a special ``after_request`` hook:
 
 .. code-block:: python
 
@@ -29,12 +34,17 @@ Here is the wrapper module:
         response.headers['Access-Control-Allow-Methods'] = 'GET,POST,DELETE'
         return response
 
-Adding logging
---------------
+Adding custom logging
+---------------------
 
-To log exceptions within the Scout server, I created a wrapper for the Scout server WSGI app and added a handler to Flask's built-in app logger.
+.. note::
+    For basic file logging, you can use the ``-l`` / ``--logfile`` command-line
+    option (see :ref:`command-line-options`). The technique below is useful
+    when you need more control over log levels, formatting, or multiple
+    handlers.
 
-Here is the wrapper code:
+To log exceptions within the Scout server with a custom configuration, create a
+wrapper module that adds a handler to Flask's built-in app logger:
 
 .. code-block:: python
 

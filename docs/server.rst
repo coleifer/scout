@@ -24,7 +24,8 @@ you can instead run:
 
     $ scout_wsgi my_search_index.db
 
-You can find examples of using other high performance WSGI servers in the :ref:`deployment section <deployment>`.
+You can find examples of using other high performance WSGI servers in the
+:ref:`deployment section <deployment>`.
 
 API Endpoints
 -------------
@@ -36,25 +37,40 @@ There are four main concepts in Scout:
 * Attachments
 * Metadata
 
-*Indexes* have a name and may contain any number of documents.
+**Indexes**
+   named collection of searchable documents.
 
-*Documents* have content, which is indexed for search, and may be associated with any number of indexes.
+**Documents**
+   searchable content, may be associated with any number of indexes.
 
-*Attachments* are arbitrary files which are associated with a document. For instance, if you were using Scout to provide search over a library of PDFs, your *Document* might contain the key search terms from the PDF and the actual PDF would be linked to the document as an attachment. A document may have any number of attachments, or none at all.
+**Attachments**
+   arbitrary files which are associated with a document. For instance, if you
+   were using Scout to provide search over a library of PDFs, your **Document**
+   might contain the key search terms from the PDF and the actual PDF would be
+   linked to the document as an attachment. A document may have any number of
+   attachments, or none at all.
 
-Documents also can have *metadata*, arbitrary key/value pairs. Besides full-text search, Scout allows complex filtering based on metadata values. So in addition to storing useful things alongside your documents, you can also use metadata to provide an additional layer of filtering.
+Documents also can have **metadata**, arbitrary key/value pairs. Besides
+full-text search, Scout allows complex filtering based on metadata values. So
+in addition to storing useful things alongside your documents, you can also use
+metadata to provide an additional layer of filtering.
 
 .. _index_list:
 
 Index list: "/"
 ---------------
 
-The index list endpoint returns the list of indexes and the number of documents contained within each. The list is not paginated and will display all available indexes. New indexes can be created by POST-ing a name to this URL.
+The index list endpoint returns a paginated list of indexes and the number of
+documents contained within each. New indexes can be created by POST-ing a name
+to this URL.
 
 Valid GET parameters:
 
 * ``page``: which page of results to fetch, by default 1.
-* ``ordering``: order in which to return the indexes. By default they are returned ordered by name. Valid values are ``name``, ``id``, and ``document_count``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending.
+* ``ordering``: order in which to return the indexes. By default they are
+  returned ordered by name. Valid values are ``name``, ``id``, and
+  ``document_count``. By prefixing the name with a *minus* sign ("-") you can
+  indicate the results should be ordered descending.
 
 Example GET request and response:
 
@@ -83,7 +99,9 @@ Response:
       ],
       "ordering": [],
       "page": 1,
-      "pages": 1
+      "pages": 1,
+      "next_url": null,
+      "previous_url": null
     }
 
 Example POST request and response:
@@ -102,10 +120,13 @@ Response:
       "id": 3,
       "name": "test-index",
       "page": 1,
-      "pages": 0
+      "pages": 0,
+      "next_url": null,
+      "previous_url": null
     }
 
-The POST response corresponds to the serialized index detail for the newly-created index.
+The POST response corresponds to the serialized index detail for the
+newly-created index.
 
 .. _index_detail:
 
@@ -121,13 +142,18 @@ Valid GET parameters:
 * ``ordering``: order in which to return the documents. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``id``, ``identifier``, ``content``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
 * ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
 
-  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
+  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_.
+    This is only available if your version of SQLite supports FTS4.
   * ``simple``: use a simple, efficient ranking algorithm.
-  * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
+  * ``none``: do not use any ranking algorithm. Search results will not have a
+    *score* attribute.
 
-* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
+* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering.
 
-When a search query is present, each returned document will have an additional field named ``score``. This field contains the numerical value the scoring algorithm gave to the document. To disable scores when searching, you can specify ``ranking=none``.
+When a search query is present, each returned document will have an additional
+field named ``score``. This field contains the numerical value the scoring
+algorithm gave to the document. To disable scores when searching, you can
+specify ``ranking=none``.
 
 Example ``GET`` request and response.
 
@@ -162,7 +188,7 @@ Response:
               "data_length": 31337,
               "filename": "example.jpg",
               "mimetype": "image/jpeg",
-              "timestamp: "2016-01-04 13:37:00"
+              "timestamp": "2016-01-04 13:37:00"
             }
           ],
           "content": "test huey document",
@@ -197,11 +223,15 @@ Response:
       "ordering": [],
       "page": 1,
       "pages": 1,
+      "next_url": null,
+      "previous_url": null,
       "ranking": "bm25",
       "search_term": "test"
     }
 
-``POST`` requests update the ``name`` of the index, and like the *index_list* view, accept a ``name`` parameter. For example request and response, see the above section on creating a new index.
+``POST`` requests update the ``name`` of the index, and like the *index_list*
+view, accept a ``name`` parameter. For example request and response, see the
+above section on creating a new index.
 
 ``DELETE`` requests will delete the index, but all documents will be preserved in the database.
 
@@ -222,7 +252,10 @@ Response:
 Filtering on Metadata
 ---------------------
 
-Suppose we have an index that contains all of our contacts. The search content consists of the person's name, address, city, and state. We also have stored quite a bit of metadata about each person. A person record might look like this:
+Suppose we have an index that contains all of our contacts. The search content
+consists of the person's name, address, city, and state. We also have stored
+quite a bit of metadata about each person. A person record might look like
+this:
 
 .. code-block:: javascript
 
@@ -242,19 +275,25 @@ To search for all my relatives living in Kansas, I could use the following URL:
 
 ``/contacts-index/?q=Leifer+OR+Morgan&state=KS``
 
-Let's say we want to search our contacts index for all people who were born in 1983. We could use the following URL:
+Let's say we want to search our contacts index for all people who were born in
+1983. We could use the following URL:
 
 ``/contacts-index/?dob__ge=1983-01-01&dob__lt=1984-01-01``
 
-To search for all people who live in Lawrence or Topeka, KS we could use the following URL:
+To search for all people who live in Lawrence or Topeka, KS we could use the
+following URL:
 
 ``/contacts-index/?city__in=Lawrence,Topeka&state=KS``
 
-Scout will take all filters and return only those records that match all of the given conditions. However, when the same key is used multiple times, Scout will use ``OR`` to join those clauses. For example, another way we could query for people who live in Lawrence or Topeka would be:
+Scout will take all filters and return only those records that match all of the
+given conditions. However, when the same key is used multiple times, Scout will
+use ``OR`` to join those clauses. For example, another way we could query for
+people who live in Lawrence or Topeka would be:
 
-``/contacts-index/search/?q=*&city=Lawrence&city=Topeka&state=KS``
+``/contacts-index/?q=*&city=Lawrence&city=Topeka&state=KS``
 
-As you can see, we're querying ``city=XXX`` twice. Scout will interpret that as meaning ``(city=Lawrence OR city=Topeka) AND state=KS``.
+As you can see, we're querying ``city=XXX`` twice. Scout will interpret that as
+meaning ``(city=Lawrence OR city=Topeka) AND state=KS``.
 
 Query operations
 ^^^^^^^^^^^^^^^^
@@ -278,25 +317,31 @@ There are a number of operations available for use when querying metadata. Here 
 Document list: "/documents/"
 ----------------------------
 
-The document list endpoint returns a paginated list of all documents, regardless of index. New documents are created by ``POST``-ing the content, index(es) and optional metadata.
+The document list endpoint returns a paginated list of all documents,
+regardless of index. New documents are created by ``POST``-ing the content,
+index(es) and optional metadata.
 
 Valid GET parameters:
 
 * ``q``: full-text search query.
 * ``page``: which page of documents to fetch, by default 1.
-* ``index``: the name of an index to restrict the results to. **Note**: this parameter can appear multiple times.
+* ``index``: the name of an index to restrict the results to. **Note**: this parameter can appear multiple times. When multiple indexes are specified, the ``document_count`` reflects the number of distinct documents across those indexes (a document belonging to multiple filtered indexes is only counted once).
 * ``ordering``: order in which to return the documents. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``id``, ``identifier``, ``content``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
 * ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
 
-  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4 or FTS5.
+  * ``bm25``: use the `Okapi BM25 algorithm <http://en.wikipedia.org/wiki/Okapi_BM25>`_. This is only available if your version of SQLite supports FTS4.
   * ``simple``: use a simple, efficient ranking algorithm.
   * ``none``: do not use any ranking algorithm. Search results will not have a *score* attribute.
 
-* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering..
+* **Arbitrary metadata filters**. See :ref:`metadata_filters` for a description of metadata filtering.
 
-When a search query is present, each returned document will have an additional field named ``score``. This field contains the numerical value the scoring algorithm gave to the document. To disable scores when searching, you can specify ``ranking=none``.
+When a search query is present, each returned document will have an additional
+field named ``score``. This field contains the numerical value the scoring
+algorithm gave to the document. To disable scores when searching, you can
+specify ``ranking=none``.
 
-Example ``GET`` request and response. In the request below we are searching for the string *"test"* in the ``photos``, ``articles`` and ``videos`` indexes.
+Example ``GET`` request and response. In the request below we are searching for
+the string *"test"* in the ``photos``, ``articles`` and ``videos`` indexes.
 
 .. code-block:: console
 
@@ -316,7 +361,7 @@ Response:
               "data_length": 31337,
               "filename": "example.jpg",
               "mimetype": "image/jpeg",
-              "timestamp: "2016-03-01 13:37:00"
+              "timestamp": "2016-03-01 13:37:00"
             }
           ],
           "content": "test photo",
@@ -337,7 +382,7 @@ Response:
               "data_length": 3131337,
               "filename": "movie.mp4",
               "mimetype": "video/mp4",
-              "timestamp: "2016-03-02 13:37:00"
+              "timestamp": "2016-03-02 13:37:00"
             }
           ],
           "content": "test video upload",
@@ -357,6 +402,8 @@ Response:
       "ordering": [],
       "page": 1,
       "pages": 1,
+      "next_url": null,
+      "previous_url": null,
       "ranking": "bm25",
       "search_term": "test"
     }
@@ -365,7 +412,7 @@ Response:
 
 * ``content`` (required): the document content.
 * ``index`` or ``indexes`` (required): the name(s) of the index(es) the document should be associated with.
-* ``identifier`` (optional): an application-defined identifier for the document.
+* ``identifier`` (optional): an application-defined identifier for the document. If a document with the same identifier already exists, the existing document will be updated instead of creating a new one.
 * ``metadata`` (optional): arbitrary key/value pairs.
 
 Example ``POST`` request creating a new document:
@@ -382,22 +429,42 @@ Response on creating a new document:
 .. code-block:: javascript
 
     {
+      "attachments": [],
       "content": "New document",
       "id": 121,
+      "identifier": null,
       "indexes": [
         "test-index"
       ],
       "metadata": {}
     }
 
+
 .. _document_detail:
 
 Document detail: "/documents/:document-id/"
 -------------------------------------------
 
-The document detail endpoint returns document content, indexes, and metadata. Documents can be updated or deleted by using ``POST`` and ``DELETE`` requests, respectively. When updating a document, you can update the ``content``, ``index(es)``, and/or ``metadata``.
+The document detail endpoint returns document content, indexes, and metadata.
+Documents can be updated or deleted by using ``POST`` and ``DELETE`` requests,
+respectively. When updating a document, you can update the ``content``,
+``index(es)``, ``identifier``, and/or ``metadata``.
 
-.. warning:: If you choose to update metadata, all current metadata for the document will be removed, so it's really more of a "replace" than an "update".
+The ``:document-id`` can be either the integer document ID or a user-defined
+``identifier``. If a numeric ID does not match, Scout will attempt to look up
+the document by its ``identifier`` field.
+
+.. warning::
+    If you choose to update metadata, all current metadata for the document
+    will be removed, so it's really more of a "replace" than an "update". To
+    clear all metadata for a document, pass ``"metadata": null`` or
+    ``"metadata": {}``.
+
+.. note::
+    When updating a document, omitting a field preserves its current value. For
+    example, omitting ``indexes`` from a POST will leave the document's index
+    associations unchanged. However, passing an empty list (``"indexes": []``)
+    will explicitly clear all index associations.
 
 Example ``GET`` request and response:
 
@@ -436,8 +503,10 @@ Response:
 .. code-block:: javascript
 
     {
+      "attachments": [],
       "content": "test zaizee updated",
       "id": 118,
+      "identifier": null,
       "indexes": [
         "blog",
         "test-index"
@@ -447,7 +516,7 @@ Response:
       }
     }
 
-``DELETE`` requests can be used to completely remove a document.
+``DELETE`` requests can be used to completely remove a document. Deleting a document will also remove all of its metadata, index associations, and attachments. Orphaned attachment data (BLOBs not referenced by any other document) will be cleaned up automatically.
 
 Example ``DELETE`` request and response:
 
@@ -504,10 +573,13 @@ Response:
       ],
       "ordering": ["timestamp"],
       "page": 1,
-      "pages": 1
+      "pages": 1,
+      "next_url": null,
+      "previous_url": null
     }
 
-``POST`` requests should contain the attachments as form-encoded files. The :ref:`Scout client <client>` will handle this automatically for you.
+``POST`` requests should contain the attachments as form-encoded files. The
+:ref:`Scout client <client>` will handle this automatically for you.
 
 Example ``POST`` request uploading a new attachment:
 
@@ -544,7 +616,11 @@ Response on creating a new attachment:
 Attachment detail: "/documents/:document-id/attachments/:filename/"
 -------------------------------------------------------------------
 
-The attachment detail endpoint returns basic information about the attachment, as well as a link to download the actual attached file. Attachments can be updated or deleted by using ``POST`` and ``DELETE`` requests, respectively. When you update an attachment, the original is deleted and a new attachment created for the uploaded content.
+The attachment detail endpoint returns basic information about the attachment,
+as well as a link to download the actual attached file. Attachments can be
+updated or deleted by using ``POST`` and ``DELETE`` requests, respectively.
+When you update an attachment, the original is deleted and a new attachment
+created for the uploaded content.
 
 Example ``GET`` request and response:
 
@@ -565,7 +641,7 @@ Response:
       "timestamp": "2016-03-14 22:10:00"
     }
 
-``DELETE`` requests are used to  **detach** a file from a document.
+``DELETE`` requests are used to **detach** a file from a document.
 
 Example ``DELETE`` request and response:
 
@@ -584,7 +660,9 @@ Response:
 Attachment download: "/documents/:document-id/attachments/:filename/download/"
 ------------------------------------------------------------------------------
 
-The attachment download endpoint is a special URL that returns the attached file as a downloadable HTTP response. This is the only way to access an attachment's underlying file data.
+The attachment download endpoint is a special URL that returns the attached
+file as a downloadable HTTP response. This is the only way to access an
+attachment's underlying file data.
 
 To download an attachment, simply send a ``GET`` request to the attachment's "data" URL:
 
@@ -592,20 +670,76 @@ To download an attachment, simply send a ``GET`` request to the attachment's "da
 
     $ curl http://localhost:8000/documents/13/attachments/banner.jpg/download/
 
+.. _global_attachment_list:
+
+Global attachment list: "/attachments/"
+---------------------------------------
+
+The global attachment list endpoint returns a paginated list of all attachments
+across all documents in the database. This is useful for browsing or searching
+all uploaded files without knowing which document they belong to.
+
+Valid GET parameters:
+
+* ``page``: which page of results to fetch, by default 1.
+* ``ordering``: order in which to return the attachments. By default they are returned by filename. Valid choices are ``filename``, ``mimetype``, ``timestamp``, and ``id``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending.
+* ``index``: restrict results to attachments on documents belonging to the specified index. **Note**: this parameter can appear multiple times.
+* ``filename``: filter by exact filename.
+* ``mimetype``: filter by exact MIME type.
+
+Example ``GET`` request and response:
+
+.. code-block:: console
+
+    $ curl localhost:8000/attachments/?mimetype=image/jpeg
+
+Response:
+
+.. code-block:: javascript
+
+    {
+      "attachments": [
+        {
+          "data": "/documents/1/attachments/photo.jpg/download/",
+          "data_length": 31337,
+          "document": "/documents/1/",
+          "filename": "photo.jpg",
+          "mimetype": "image/jpeg",
+          "timestamp": "2016-03-01 13:37:00"
+        }
+      ],
+      "ordering": [],
+      "page": 1,
+      "pages": 1,
+      "next_url": null,
+      "previous_url": null
+    }
+
+Example filtering by index:
+
+.. code-block:: console
+
+    $ curl localhost:8000/attachments/?index=blog&index=photos
+
+This will return all attachments belonging to documents in the ``blog`` or ``photos`` indexes.
+
 Example of using Authentication
 -------------------------------
 
-Scout provides very basic key-based authentication. You can specify a single, global key which must be specified in order to access the API.
+Scout provides very basic key-based authentication. You can specify a single,
+global key which must be specified in order to access the API.
 
-To specify the API key, you can pass it in on the command-line or specify it in a configuration file (described below).
+To specify the API key, you can pass it in on the command-line or specify it in
+a configuration file (described below).
 
 Example of running scout with an API key:
 
 .. code-block:: console
 
-    $ python scout.py -k secret /path/to/search.db
+    $ scout -k secret /path/to/search.db
 
-If we try to access the API without specifying the key, we get a ``401`` response stating Invalid API key:
+If we try to access the API without specifying the key, we get a ``401``
+response stating Invalid API key:
 
 .. code-block:: console
 
@@ -635,32 +769,34 @@ Alternatively, the key can be specified as a ``GET`` argument:
 Configuration and Command-Line Options
 --------------------------------------
 
-The easiest way to run Scout is to invoke it directly from the command-line, passing the database in as the last argument:
+The easiest way to run Scout is to invoke it directly from the command-line,
+passing the database in as the last argument:
 
 .. code-block:: console
 
-    $ python scout.py /path/to/search.db
+    $ scout /path/to/search.db
 
-The database file can also be specified using the SCOUT_DATABASE environment variable:
+The database file can also be specified using the ``SCOUT_DATABASE`` environment variable:
 
 .. code-block:: console
 
-    $ SCOUT_DATABASE=/path/to/search.db python scout.py
+    $ SCOUT_DATABASE=/path/to/search.db scout
 
-Scout supports a handful of configuration options to control it's behavior when run from the command-line. The following table describes these options:
+Scout supports a handful of configuration options to control its behavior when run from the command-line. The following table describes these options:
 
-* ``-H``, ``--host``: set the hostname to listen on. Defaults to ``127.0.0.1``
+* ``-H``, ``--host``: set the hostname to listen on. Defaults to ``127.0.0.1``.
 * ``-p``, ``--port``: set the port to listen on. Defaults to ``8000``.
-* ``-u``, ``--url-prefix``: url path to prefix Scout API with, e.g. "/search".
-* ``-s``, ``--stem``: set the stemming algorithm. Valid options are ``simple`` and ``porter``. Defaults to ``porter`` stemmer. This option only will be in effect when a new database is created, as the stemming algorithm is part of the table definition.
+* ``-u``, ``--url-prefix``: URL path to prefix Scout API with, e.g. ``/search``.
+* ``-s``, ``--stem``: set the stemming algorithm. Valid options are ``simple`` and ``porter``. Defaults to ``porter`` stemmer. This option only takes effect when a new database is created, as the stemming algorithm is part of the table definition.
 * ``-d``, ``--debug``: boolean flag to run Scout in debug mode.
 * ``-c``, ``--config``: set the configuration file (a Python module). See the configuration options for available settings.
-* ``--paginate-by``: set the number of documents displayed per page of results. Default is 50.
+* ``--paginate-by``: set the number of documents displayed per page of results. Default is 50. Must be between 1 and 1000.
 * ``-k``, ``--api-key``: set the API key required to access Scout. By default no authentication is required.
 * ``-C``, ``--cache-size``: set the size of the SQLite page cache (in MB), defaults to 64.
-* ``-f``, ``--fsync``: require fsync after every SQLite transaction is committed.
-* ``-j``, ``--journal-mode``: specify SQLite journal-mode. Default is "wal".
+* ``-f``, ``--fsync``: require fsync after every SQLite transaction is committed. By default synchronous writes are disabled for performance.
+* ``-j``, ``--journal-mode``: specify SQLite journal-mode. Default is ``wal`` (recommended).
 * ``-l``, ``--logfile``: configure file for log output.
+* ``-m``, ``--max-request-size``: maximum size of request body in bytes. Default is 64MB (67108864 bytes).
 
 .. _config-file:
 
@@ -677,8 +813,9 @@ The following options can be overridden:
 * ``HOST`` (same as ``-H`` or ``--host``).
 * ``PAGINATE_BY`` (same as ``--paginate-by``).
 * ``PORT`` (same as ``-p`` or ``--port``).
-* ``SECRET_KEY``, which is used internally by Flask to encrypt client-side session data stored in cookies.
 * ``STEM`` (same as ``-s`` or ``--stem``).
+* ``SQLITE_PRAGMAS``, a list of 2-tuples specifying SQLite pragmas to set on the database connection (e.g. ``[('journal_mode', 'wal'), ('cache_size', -65536)]``).
+* ``MAX_CONTENT_LENGTH``, maximum request body size in bytes (same as ``-m`` or ``--max-request-size``).
 
 .. note:: Options specified on the command-line will override any options specified in the configuration file.
 
@@ -693,14 +830,16 @@ Example configuration file:
     PORT = 1234
     STEM = 'porter'
 
-Example of running Scout with the above config file. Note that since we specified the database in the config file, we do not need to pass one in on the command-line.
+Example of running Scout with the above config file. Note that since we
+specified the database in the config file, we do not need to pass one in on the
+command-line.
 
 .. code-block:: console
 
-    $ python scout.py -c search_config.py
+    $ scout -c search_config.py
 
 You can also specify the configuration file using the ``SCOUT_CONFIG`` environment variable:
 
 .. code-block:: console
 
-    $ SCOUT_CONFIG=search_config.py python scout.py
+    $ SCOUT_CONFIG=search_config.py scout
