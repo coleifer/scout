@@ -16,7 +16,7 @@ from .models import Metadata
 
 
 class DocumentSearch(object):
-    def search(self, phrase, index=None, ranking='bm25', ordering=None,
+    def search(self, phrase, index=None, ranking=SEARCH_BM25, ordering=None,
                **filters):
         phrase = phrase.strip()
         if not phrase:
@@ -26,7 +26,20 @@ class DocumentSearch(object):
 
         query = Document.select()
         if phrase != '*':
-            query = query.where(Document.content.match(phrase))
+            # Scope the MATCH to the content column only. The identifier
+            # column is used internally and should not be searchable.
+            # FTS5 column filter syntax: "column : (expression)"
+            # The parentheses ensure complex queries like "faith OR hope"
+            # are fully scoped: content : (faith OR hope)
+            # Without them: content : faith OR hope — only "faith" is
+            # scoped while "hope" searches all columns.
+            try:
+                query = query.where(
+                    Document.match('content : (%s)' % phrase))
+            except Exception:
+                raise InvalidSearchException(
+                    'Invalid search query "%s". Please check your query '
+                    'syntax.' % phrase)
 
         # Allow filtering by index(es).
         if index is not None:
@@ -46,6 +59,7 @@ class DocumentSearch(object):
             ordering = ()
         elif isinstance(ordering, str):
             ordering = [ordering]
+
         return self.apply_rank_and_sort(query, ranking, ordering)
 
     def get_metadata_filter_expression(self, filters):
@@ -113,7 +127,7 @@ class DocumentSearch(object):
     def get_rank_expression(self, ranking):
         if ranking == SEARCH_BM25:
             # Search only the content field, do not search the identifiers.
-            return Document.bm25(1.0, 0.0)
+            return Document.rank()
         else:
             error('Unrecognized ranking: "%s"' % ranking)
 

@@ -20,6 +20,7 @@ from scout.constants import RANKING_CHOICES
 from scout.constants import SEARCH_BM25
 from scout.constants import SEARCH_NONE
 from scout.exceptions import error
+from scout.exceptions import InvalidSearchException
 from scout.models import database
 from scout.models import Attachment
 from scout.models import BlobData
@@ -177,19 +178,25 @@ class ScoutView(object):
 
         include_score = q and q != '*' and ranking != SEARCH_NONE
 
-        query = engine.search(q or '*', index, ranking, ordering, **filters)
-        pq = self.paginated_query(query)
         try:
-            serialized = document_serializer.serialize_query(
+            query = engine.search(q or '*', index, ranking, ordering, **filters)
+        except InvalidSearchException as exc:
+            error(str(exc))
+
+        pq = self.paginated_query(query)
+
+        try:
+            documents = document_serializer.serialize_query(
                 pq.get_object_list(),
                 include_score=include_score)
+            filtered_count = query.count()
         except OperationalError as exc:
-            return jsonify({'error': str(exc)}), 400
+            error('Invalid search query: %s' % str(exc))
 
         response = self.paginated_response(pq, {
             'document_count': document_count,
-            'documents': serialized,
-            'filtered_count': query.count(),
+            'documents': documents,
+            'filtered_count': filtered_count,
             'filters': filters,
             'ordering': ordering,
         })

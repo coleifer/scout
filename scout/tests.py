@@ -1851,6 +1851,441 @@ class TestScoutClient(BaseTestCase):
         self.assertEqual(results['attachments'][0]['filename'], 'fa.txt')
 
 
+class FTS5TestCase(BaseTestCase):
+    def setUp(self):
+        super(FTS5TestCase, self).setUp()
+        app.config['AUTHENTICATION'] = None
+        self.app = app.test_client()
+        self.index = Index.create(name='default')
+
+    def _add(self, content, identifier=None, **metadata):
+        return self.index.index(content=content, identifier=identifier,
+                                **metadata)
+
+    def _search(self, phrase, ranking=SEARCH_BM25, **k):
+        results = engine.search(phrase, index=self.index, ranking=ranking, **k)
+        return [doc.content for doc in results]
+
+    def _http_search(self, phrase, **params):
+        params['q'] = phrase
+        params.setdefault('ranking', SEARCH_BM25)
+        qs = urlencode(params, doseq=True)
+        response = self.app.get('/default/?%s' % qs)
+        return json_load(response.data), response.status_code
+
+    def _http_search_docs(self, phrase, **params):
+        params['q'] = phrase
+        params['index'] = 'default'
+        params.setdefault('ranking', SEARCH_BM25)
+        qs = urlencode(params, doseq=True)
+        response = self.app.get('/documents/?%s' % qs)
+        return json_load(response.data), response.status_code
+
+    def _contents(self, data):
+        return [d['content'] for d in data['documents']]
+
+    def assertCorpusResults(self, phrase, expected_indexes,
+                            ranking=SEARCH_BM25):
+        results = [doc.content for doc in
+                   engine.search(phrase, index=self.index, ranking=ranking)]
+        self.assertEqual(results, [self.corpus[i] for i in expected_indexes])
+
+
+class TestScopeToContent(FTS5TestCase):
+    """
+    Verify that the ``identifier`` column is NOT searched.
+    """
+    def test_identifier_not_matched(self):
+        self._add('the quick brown fox', identifier='secret-keyword-xyz')
+        self.assertEqual(self._search('secret'), [])
+        self.assertEqual(self._search('keyword'), [])
+        self.assertEqual(self._search('xyz'), [])
+
+    def test_content_still_matches(self):
+        self._add('the quick brown fox', identifier='doc-001')
+        self.assertEqual(self._search('quick'), ['the quick brown fox'])
+        self.assertEqual(self._search('brown'), ['the quick brown fox'])
+
+    def test_shared_term_in_both_columns(self):
+        self._add('python tutorial for beginners', identifier='python tut')
+        self.assertEqual(self._search('python'),
+                         ['python tutorial for beginners'])
+
+    def test_http_identifier_not_matched(self):
+        self._add('secret formula', identifier='magic keyword')
+        data, status = self._http_search('magic')
+        self.assertEqual(status, 200)
+        self.assertEqual(self._contents(data), [])
+
+    def test_http_content_match(self):
+        self._add('secret formula', identifier='magic keyword')
+        data, status = self._http_search('secret')
+        self.assertEqual(status, 200)
+        self.assertEqual(self._contents(data), ['secret formula'])
+
+
+class TestFTSQueries(FTS5TestCase):
+    """
+    Corpus:
+        0: A faith is a necessity to a man. Woe to him who believes in nothing.
+        1: All who call on God in true faith, earnestly from the heart, ...
+        2: Be faithful in small things because it is in them that your ...
+        3: Faith consists in believing when it is beyond the power of ...
+        4: Faith has to do with things that are not seen and hope with ...
+    """
+    def setUp(self):
+        super().setUp()
+        for content in self.corpus:
+            self._add(content)
+
+    def test_bareword(self):
+        self.assertCorpusResults('believe', [3, 0])
+        self.assertCorpusResults('faith man', [0])
+        self.assertCorpusResults('faith thing', [4, 2])
+
+        # No result.
+        self.assertCorpusResults('blah', [])
+
+        # Case sensitivity.
+        lower = self._search('faith')
+        upper = self._search('FAITH')
+        mixed = self._search('Faith')
+        self.assertEqual(set(lower), set(upper))
+        self.assertEqual(set(lower), set(mixed))
+
+    def test_wildcard_returns_all(self):
+        results = self._search('*')
+        self.assertEqual(len(results), 5)
+
+    def test_http_simple_term(self):
+        data, status = self._http_search('believe')
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data['documents']), 2)
+        self.assertEqual(data['search_term'], 'believe')
+        self.assertEqual(data['ranking'], 'bm25')
+
+    def test_or(self):
+        self.assertCorpusResults('man OR hope', [0, 4])
+        self.assertCorpusResults('believe OR nothing', [0, 3])  # No dupes.
+
+    def test_not(self):
+        self.assertCorpusResults('believe NOT nothing', [3])
+        self.assertCorpusResults('believe NOT believe', [])
+
+    def test_explicit_and(self):
+        self.assertCorpusResults('faith AND hope', [4])
+        self.assertCorpusResults('faith AND thing', [4, 2])
+        self.assertCorpusResults('thing AND faith', [4, 2])
+
+    def test_and_is_default(self):
+        implicit = set(self._search('faith hope'))
+        explicit = set(self._search('faith AND hope'))
+        self.assertEqual(implicit, explicit)
+
+    def test_combined_boolean(self):
+        self.assertCorpusResults('(man OR hope) NOT believe', [4])
+
+    def test_http_or(self):
+        data, _ = self._http_search('man OR hope')
+        self.assertEqual(len(data['documents']), 2)
+
+    def test_http_not(self):
+        data, _ = self._http_search('believe NOT nothing')
+        self.assertEqual(len(data['documents']), 1)
+        self.assertEqual(data['documents'][0]['content'], self.corpus[3])
+
+    def test_exact_phrase(self):
+        self.assertCorpusResults('"true faith"', [1])
+        self.assertCorpusResults('"small things"', [2])
+        self.assertCorpusResults('"things small"', [])
+        self.assertCorpusResults('"faith hope"', [])
+
+        self.assertCorpusResults('"true faith" OR "small things"', [2, 1])
+        self.assertCorpusResults('"true faith" heart', [1])
+
+    def test_http_phrase(self):
+        data, _ = self._http_search('"true faith"')
+        self.assertEqual(len(data['documents']), 1)
+
+    def test_prefix_fa(self):
+        self.assertCorpusResults('fa*', [2, 3, 0, 4, 1])
+        self.assertCorpusResults('beli*', [3, 0])
+        self.assertCorpusResults('fa* NOT hope', [2, 3, 0, 1])
+        self.assertCorpusResults('xyz*', [])
+
+    def test_http_prefix(self):
+        data, _ = self._http_search('beli*')
+        self.assertEqual(len(data['documents']), 2)
+
+    def test_near_default_distance(self):
+        self.assertCorpusResults('NEAR(faith man)', [0])
+        self.assertCorpusResults('NEAR(true faith, 1)', [1])
+        self.assertCorpusResults('NEAR(call desired, 2)', [])
+        self.assertCorpusResults('NEAR(call desired, 25)', [1])
+
+    def test_http_near(self):
+        data, _ = self._http_search('NEAR(true faith, 1)')
+        self.assertEqual(len(data['documents']), 1)
+
+    def test_initial_token_match(self):
+        self.assertCorpusResults('^faith', [3, 4])
+        self.assertCorpusResults('^hope', [])
+        self.assertCorpusResults('^a', [0])
+
+    def test_http_initial_token(self):
+        data, _ = self._http_search('^faith')
+        self.assertEqual(len(data['documents']), 2)
+
+    def test_stemming(self):
+        for s in ('believe', 'believes', 'believing'):
+            self.assertCorpusResults(s, [3, 0])
+
+        for s in ('thing', 'things'):
+            self.assertCorpusResults(s, [4, 2])
+
+        for s in ('faithful', 'faith'):
+            self.assertCorpusResults(s, [2, 3, 0, 4, 1])
+
+    def test_complex_queries(self):
+        self.assertCorpusResults('(hope OR man) AND faith', [0, 4])
+        self.assertCorpusResults('"true faith" OR believe', [1, 3, 0])
+        self.assertCorpusResults('beli* NOT nothing', [3])
+        self.assertCorpusResults('NEAR(faith man, 5) OR hope', [0, 4])
+        self.assertCorpusResults('^faith AND thing', [4])
+
+    def test_http_complex(self):
+        data, _ = self._http_search('(hope OR man) AND faith')
+        self.assertEqual(len(data['documents']), 2)
+
+    def test_bm25_ordering(self):
+        results = engine.search('believe', index=self.index, ranking=SEARCH_BM25)
+        results = list(results)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0].content, self.corpus[3])
+        for doc in results:
+            self.assertTrue(hasattr(doc, 'score'))
+            self.assertLess(doc.score, 0)
+
+    def test_ranking_none_suppresses_scores(self):
+        data, _ = self._http_search('believe', ranking='none')
+        for doc in data['documents']:
+            self.assertNotIn('score', doc)
+
+    def test_http_scores_present(self):
+        data, _ = self._http_search('believe')
+        for doc in data['documents']:
+            self.assertIn('score', doc)
+            self.assertIsInstance(doc['score'], float)
+
+    def test_ordering_by_score(self):
+        # By default sorted by score.
+        data, _ = self._http_search('faith')
+        scores = [d['score'] for d in data['documents']]
+        self.assertEqual(scores, sorted(scores))
+
+        data, _ = self._http_search('faith', ordering='-score')
+        scores = [d['score'] for d in data['documents']]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_ordering_by_data(self):
+        data, _ = self._http_search('faith', ordering='id')
+        ids = [d['id'] for d in data['documents']]
+        self.assertEqual(ids, sorted(ids))
+
+        data, _ = self._http_search('faith', ordering='-id')
+        ids = [d['id'] for d in data['documents']]
+        self.assertEqual(ids, sorted(ids, reverse=True))
+
+        data, _ = self._http_search('faith', ordering='content')
+        contents = self._contents(data)
+        self.assertEqual(contents, sorted(contents))
+
+
+class TestFTS5ErrorHandling(FTS5TestCase):
+    """
+    Malformed FTS5 queries should return a 400 with a helpful message,
+    not a 500 Internal Server Error.
+    """
+    def setUp(self):
+        super().setUp()
+        for content in self.corpus:
+            self._add(content)
+
+    def test_empty_query_error(self):
+        self.assertRaises(InvalidSearchException, engine.search, '')
+        self.assertRaises(InvalidSearchException, engine.search, '   ')
+
+    def test_search_errors(self):
+        cases = (
+            '"unbalanced',
+            'OR',
+            'NOT',
+            'AND',
+            'foo AND OR bar',
+            '(foo AND bar',
+            'foo AND bar)',
+            '()',
+            'NEAR()',
+        )
+
+        for case in cases:
+            data, status = self._http_search(case)
+            self.assertEqual(status, 400)
+            self.assertIn('error', data)
+
+            data, status = self._http_search_docs('"unbalanced')
+            self.assertEqual(status, 400)
+            self.assertIn('error', data)
+
+    def test_valid_query_still_works(self):
+        data, status = self._http_search('faith')
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data['documents']), 5)
+
+
+class TestFTS5Unicode(FTS5TestCase):
+    def setUp(self):
+        super().setUp()
+        self._add('café au lait is a french drink')
+        self._add('naïve bayes classifier')
+        self._add('über cool engineering')
+
+    def test_unicode(self):
+        results = self._search('café')
+        self.assertEqual(len(results), 1)
+        self.assertIn('café', results[0])
+
+        results = self._search('naïve')
+        self.assertEqual(len(results), 1)
+
+        results = self._search('über')
+        self.assertEqual(len(results), 1)
+
+    def test_http_unicode(self):
+        data, status = self._http_search('café')
+        self.assertEqual(status, 200)
+        self.assertTrue(len(data['documents']) >= 1)
+
+
+class TestFTS5WithMetadataFilters(FTS5TestCase):
+    def setUp(self):
+        super().setUp()
+        topics = ['virtue', 'prayer', 'virtue', 'philosophy', 'philosophy']
+        authors = ['hugo', 'luther', 'teresa', 'voltaire', 'unknown']
+        for i, content in enumerate(self.corpus):
+            self._add(content, topic=topics[i], author=authors[i])
+
+    def test_search_with_eq_filter(self):
+        results = self._search('faith', topic='virtue')
+        self.assertEqual(len(results), 2)
+
+    def test_search_with_multiple_filters(self):
+        results = self._search('faith', topic='virtue', author='hugo')
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0], self.corpus[0])
+
+    def test_search_with_ne_filter(self):
+        results = self._search('believe', author__ne='hugo')
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0], self.corpus[3])
+
+    def test_search_with_in_filter(self):
+        results = self._search('faith', topic__in='virtue,prayer')
+        self.assertEqual(len(results), 3)
+
+    def test_search_with_contains_filter(self):
+        results = self._search('faith', topic__contains='philos')
+        self.assertEqual(len(results), 2)
+
+    def test_http_search_with_filter(self):
+        data, _ = self._http_search('faith', topic='virtue')
+        self.assertEqual(len(data['documents']), 2)
+        self.assertEqual(data['filters'], {'topic': ['virtue']})
+
+    def test_http_search_with_multiple_filters(self):
+        data, _ = self._http_search('faith', topic='virtue', author='hugo')
+        self.assertEqual(len(data['documents']), 1)
+        self.assertEqual(data['documents'][0]['content'], self.corpus[0])
+
+
+class TestFTS5EdgeCases(FTS5TestCase):
+    def test_search_empty_index(self):
+        self.assertEqual(self._search('anything'), [])
+
+    def test_duplicate_content(self):
+        for _ in range(3):
+            self._add('identical content here')
+        self.assertEqual(len(self._search('identical')), 3)
+
+    def test_search_after_update(self):
+        doc = self._add('original content', identifier='doc1')
+        self.assertEqual(len(self._search('original')), 1)
+
+        self.index.index(content='updated content', document=doc,
+                         identifier='doc1')
+        self.assertEqual(self._search('original'), [])
+        self.assertEqual(len(self._search('updated')), 1)
+
+    def test_search_after_delete(self):
+        doc = self._add('ephemeral content')
+        self.assertEqual(len(self._search('ephemeral')), 1)
+        doc.delete_instance()
+        self.assertEqual(self._search('ephemeral'), [])
+
+    def test_asterisk_with_filter(self):
+        self._add('first document', tag='a')
+        self._add('second document', tag='b')
+        results = self._search('*', tag='a')
+        self.assertEqual(len(results), 1)
+        self.assertIn('first document', results)
+
+    def test_search_multiple_indexes(self):
+        idx2 = Index.create(name='other')
+        doc = self._add('shared document')
+        idx2.add_to_index(doc)
+
+        self.assertEqual(len(self._search('shared')), 1)
+        r2 = engine.search('shared', index=idx2, ranking=SEARCH_BM25)
+        self.assertEqual(len(list(r2)), 1)
+
+
+class TestFTS5HTTPIntegration(FTS5TestCase):
+    def setUp(self):
+        super().setUp()
+        for i in range(25):
+            self._add('document number %d about testing' % i, idx=str(i))
+
+    def test_pagination(self):
+        data, _ = self._http_search('testing')
+        self.assertEqual(data['filtered_count'], 25)
+        self.assertEqual(len(data['documents']), 10)
+
+    def test_filtered_count(self):
+        data, _ = self._http_search('testing', idx='5')
+        self.assertEqual(data['filtered_count'], 1)
+
+    def test_search_term_in_response(self):
+        data, _ = self._http_search('testing')
+        self.assertEqual(data['search_term'], 'testing')
+
+    def test_ranking_in_response(self):
+        data, _ = self._http_search('testing')
+        self.assertEqual(data['ranking'], 'bm25')
+
+    def test_ranking_none_in_response(self):
+        data, _ = self._http_search('testing', ranking='none')
+        self.assertEqual(data['ranking'], 'none')
+
+    def test_invalid_ranking(self):
+        data, status = self._http_search('testing', ranking='invalid')
+        self.assertEqual(status, 400)
+
+    def test_documents_endpoint_search(self):
+        data, status = self._http_search_docs('testing')
+        self.assertEqual(status, 200)
+        self.assertEqual(data['filtered_count'], 25)
+
+
 def main():
     option_parser = get_option_parser()
     options, args = option_parser.parse_args()

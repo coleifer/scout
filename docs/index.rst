@@ -54,9 +54,10 @@ Contents:
    installation
    server
    client
+   search-queries
+   example
    deployment
    hacks
-   example
 
 
 Indices and tables
