@@ -4,6 +4,16 @@ This document describes changes to Scout from one release to another.
 
 ## master
 
+* **Backwards-incompatible**: switch to FTS5. A migration script is
+  provided - just run it once against your database. Note that FTS5 is much
+  stricter about search queries, but also more performant and more powerful.
+  We're going to bet on the future rather than staying with FTS4, even though
+  it is more convenient.
+
+[View commits](https://github.com/coleifer/scout/compare/3.1.0...master)
+
+## 3.1.0
+
 * Add `scout.gevent_server` implementation of Scout using gevent for the WSGI
   server.
 * Add new `Attachment`-only endpoint for querying all attachments
@@ -17,6 +27,8 @@ This document describes changes to Scout from one release to another.
 * Improved documentation and test coverage, fixed several longstanding bugs.
 * Support for latest version of Peewee.
 * Removed Python 2.x compat.
+
+[View commits](https://github.com/coleifer/scout/compare/3.0.4...3.1.0)
 
 ### 3.0.4
 

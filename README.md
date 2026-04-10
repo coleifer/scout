@@ -22,7 +22,7 @@ Features:
 * Multiple result ranking algorithms, porter stemmer.
 * Besides full-text search, perform complex filtering based on metadata values.
 * Comprehensive unit-tests.
-* Supports SQLite [FTS4](http://sqlite.org/fts3.html).
+* Supports SQLite [FTS5](http://sqlite.org/fts5.html).
 * [Documentation hosted on ReadTheDocs](https://scout.readthedocs.io/en/latest/).
 
 ![](https://api.travis-ci.org/coleifer/scout.svg?branch=master)

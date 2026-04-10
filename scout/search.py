@@ -7,7 +7,6 @@ from peewee import Select
 from .constants import PROTECTED_KEYS
 from .constants import SEARCH_BM25
 from .constants import SEARCH_NONE
-from .constants import SEARCH_SIMPLE
 from .exceptions import InvalidSearchException
 from .exceptions import error
 from .models import Document
@@ -27,13 +26,13 @@ class DocumentSearch(object):
 
         query = Document.select()
         if phrase != '*':
-            query = query.where(Document.match(phrase))
+            query = query.where(Document.content.match(phrase))
 
         # Allow filtering by index(es).
         if index is not None:
             query = query.join(IndexDocument)
             if isinstance(index, (list, tuple, Select)):
-                query = query.where(IndexDocument.index << index)
+                query = query.where(IndexDocument.index.in_(index))
             else:
                 query = query.where(IndexDocument.index == index)
 
@@ -60,7 +59,7 @@ class DocumentSearch(object):
     @staticmethod
     def _build_filter_expression(key, values):
         def in_(lhs, rhs):
-            return lhs << ([i.strip() for i in rhs.split(',')])
+            return lhs.in_([i.strip() for i in rhs.split(',')])
         operations = {
             'eq': operator.eq,
             'ne': operator.ne,
@@ -92,13 +91,13 @@ class DocumentSearch(object):
 
         return fn.EXISTS(Metadata.select().where(
             expr &
-            (Metadata.document == Document.docid)))
+            (Metadata.document == Document.rowid)))
 
     def apply_rank_and_sort(self, query, ranking, ordering, sort_options=None,
                             sort_default='id'):
         sort_options = sort_options or {
             'content': Document.content,
-            'id': Document.docid,
+            'id': Document.rowid,
             'identifier': Document.identifier,
         }
         if ranking is not None:
@@ -115,9 +114,6 @@ class DocumentSearch(object):
         if ranking == SEARCH_BM25:
             # Search only the content field, do not search the identifiers.
             return Document.bm25(1.0, 0.0)
-        elif ranking == SEARCH_SIMPLE:
-            # Search only the content field, do not search the identifiers.
-            return Document.rank(1.0, 0.0)
         else:
             error('Unrecognized ranking: "%s"' % ranking)
 

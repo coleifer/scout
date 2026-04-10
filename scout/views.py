@@ -179,12 +179,16 @@ class ScoutView(object):
 
         query = engine.search(q or '*', index, ranking, ordering, **filters)
         pq = self.paginated_query(query)
+        try:
+            serialized = document_serializer.serialize_query(
+                pq.get_object_list(),
+                include_score=include_score)
+        except OperationalError as exc:
+            return jsonify({'error': str(exc)}), 400
 
         response = self.paginated_response(pq, {
             'document_count': document_count,
-            'documents': document_serializer.serialize_query(
-                pq.get_object_list(),
-                include_score=include_score),
+            'documents': serialized,
             'filtered_count': query.count(),
             'filters': filters,
             'ordering': ordering,

@@ -14,17 +14,17 @@ except NameError:
 from werkzeug.utils import secure_filename
 
 
-database = SqliteExtDatabase(None, rank_functions=True, regexp_function=True)
+database = SqliteExtDatabase(None, regexp_function=True)
 
 
-class Document(FTSModel):
+class Document(FTS5Model):
     """
     The :py:class:`Document` class contains content which should be indexed
     for search. Documents can be associated with any number of indexes via
     the `IndexDocument` junction table. Because `Document` is implemented
     as an FTS virtual table, it does not support any secondary indexes, and
     all columns have *Text* type, regardless of their declared type. For that
-    reason we will utilize the internal SQLite `docid` column to relate
+    reason we will utilize the internal SQLite `rowid` column to relate
     documents to indexes.
     """
     content = SearchField()
@@ -39,24 +39,24 @@ class Document(FTSModel):
 
     @classmethod
     def all(cls):
-        return Document.select(Document.docid, Document.content,
+        return Document.select(Document.rowid, Document.content,
                                Document.identifier)
 
     def get_metadata(self):
         return dict(Metadata
                     .select(Metadata.key, Metadata.value)
-                    .where(Metadata.document == self.docid)
+                    .where(Metadata.document == self.rowid)
                     .tuples())
 
     def set_metadata(self, metadata):
         (Metadata
          .replace_many([
-             {'key': key, 'value': value, 'document': self.docid}
+             {'key': key, 'value': value, 'document': self.rowid}
              for key, value in metadata.items()])
          .execute())
 
     def delete_metadata(self):
-        Metadata.delete().where(Metadata.document == self.docid).execute()
+        Metadata.delete().where(Metadata.document == self.rowid).execute()
 
     metadata = property(get_metadata, set_metadata, delete_metadata)
 
@@ -64,7 +64,7 @@ class Document(FTSModel):
         return (Index
                 .select()
                 .join(IndexDocument)
-                .where(IndexDocument.document == self.docid))
+                .where(IndexDocument.document == self.rowid))
 
     def attach(self, filename, data):
         filename = secure_filename(filename)
@@ -202,7 +202,7 @@ class Index(BaseModel):
                      .update(
                          content=content,
                          identifier=identifier)
-                     .where(Document.docid == document.docid)
+                     .where(Document.rowid== document.rowid)
                      .execute())
 
         self.add_to_index(document)

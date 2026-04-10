@@ -21,7 +21,7 @@ class Serializer(object):
 class DocumentSerializer(object):
     def serialize(self, document, prefetched=False, include_score=False):
         data = {
-            'id': document.docid,
+            'id': document.rowid,
             'identifier': document.identifier,
             'content': document.content,
         }
@@ -33,7 +33,7 @@ class DocumentSerializer(object):
             'timestamp': str(attachment.timestamp),
             'data': url_for(
                 'attachment_download',
-                document_id=document.docid,
+                document_id=document.rowid,
                 pk=attachment.filename)}
             for attachment in sorted(document.attachments, key=_filename)]
 
@@ -47,7 +47,7 @@ class DocumentSerializer(object):
             indexes = (Index
                        .select(Index.name)
                        .join(IndexDocument)
-                       .where(IndexDocument.document == document.docid)
+                       .where(IndexDocument.document == document.rowid)
                        .order_by(Index.name)
                        .tuples())
             data['indexes'] = [name for name, in indexes]

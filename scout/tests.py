@@ -264,12 +264,12 @@ class TestSearch(BaseTestCase):
         # Should not raise or silently ignore the ordering.
         results = list(engine.search(
             'testing', index=self.index, ordering='-id'))
-        ids = [doc.docid for doc in results]
+        ids = [doc.rowid for doc in results]
         self.assertEqual(ids, sorted(ids, reverse=True))
 
         results2 = list(engine.search(
             'testing', index=self.index, ordering='id'))
-        ids2 = [doc.docid for doc in results2]
+        ids2 = [doc.rowid for doc in results2]
         self.assertEqual(ids2, sorted(ids2))
 
     def test_metadata_filter_like_exprs(self):
@@ -742,7 +742,7 @@ class TestSearchViews(BaseTestCase):
         doc = idx.index('test doc', foo='bar')
         alt_doc = idx.index('alt doc')
 
-        response = self.app.get('/documents/%s/' % doc.docid)
+        response = self.app.get('/documents/%s/' % doc.rowid)
         data = json_load(response.data)
         self.assertEqual(data, {
             'attachments': [],
@@ -824,7 +824,7 @@ class TestSearchViews(BaseTestCase):
         idx = Index.create(name='idx')
         doc = idx.index('test doc', foo='bar', nug='baze')
         doc.attach('foo.jpg', 'empty')
-        url = '/documents/%s/' % doc.docid
+        url = '/documents/%s/' % doc.rowid
 
         json_data = json.dumps({'content': 'test doc-edited'})
         response = self.app.post(url, data={
@@ -837,12 +837,12 @@ class TestSearchViews(BaseTestCase):
         a2 = Attachment.get(Attachment.filename == 'foo2.jpg')
         a1_data = {
             'mimetype': 'image/jpeg',
-            'data': '/documents/%s/attachments/foo.jpg/download/' % doc.docid,
+            'data': '/documents/%s/attachments/foo.jpg/download/' % doc.rowid,
             'timestamp': str(a1.timestamp),
             'filename': 'foo.jpg'}
         a2_data = {
             'mimetype': 'image/jpeg',
-            'data': '/documents/%s/attachments/foo2.jpg/download/' % doc.docid,
+            'data': '/documents/%s/attachments/foo2.jpg/download/' % doc.rowid,
             'timestamp': str(a2.timestamp),
             'filename': 'foo2.jpg'}
         self.assertEqual(resp_data, {
@@ -1054,7 +1054,7 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'special': 'True'},
             'score': doc1['score']})
 
-        self.assertEqual(round(doc1['score'], 4), -2.1995)
+        self.assertEqual(round(doc1['score'], 4), -2.2675)
 
         self.assertEqual(doc2, {
             'attachments': [],
@@ -1065,7 +1065,7 @@ class TestSearchViews(BaseTestCase):
             'metadata': {'special': 'True'},
             'score': doc2['score']})
 
-        self.assertEqual(round(doc2['score'], 4), -1.2948)
+        self.assertEqual(round(doc2['score'], 4), -1.3588)
 
         response = self.search('idx', 'missing')
         self.assertEqual(len(response['documents']), 0)
@@ -1073,7 +1073,7 @@ class TestSearchViews(BaseTestCase):
         response = self.search('idx', 'nug', ranking='bm25')
         doc = response['documents'][0]
         self.assertEqual(doc['content'], 'document nug nugs')
-        self.assertEqual(round(doc['score'], 3), -2.891)
+        self.assertEqual(round(doc['score'], 3), -2.98)
 
     def test_search_filters(self):
         idx = Index.create(name='idx')
@@ -1329,8 +1329,8 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual([a['filename'] for a in attachments],
                          ['notes.txt', 'notes.txt'])
         self.assertEqual([a['data'] for a in attachments], [
-            '/documents/%s/attachments/notes.txt/download/' % doc.docid,
-            '/documents/%s/attachments/notes.txt/download/' % doc2.docid])
+            '/documents/%s/attachments/notes.txt/download/' % doc.rowid,
+            '/documents/%s/attachments/notes.txt/download/' % doc2.rowid])
 
         response = self.app.get('/attachments/?index=idx2')
         data = json_load(response.data)
@@ -1586,11 +1586,11 @@ class TestScoutClient(BaseTestCase):
         self.assertEqual(result, {'success': True})
         self.assertEqual(Document.select().count(), 0)
 
-    def test_validate_docid_present(self):
-        # Need docid.
+    def test_validate_rowid_present(self):
+        # Need rowid.
         self.assertRaises(ValueError, self.scout.delete_document)
 
-        # Need docid.
+        # Need rowid.
         self.assertRaises(ValueError, self.scout.get_document)
 
         self.scout.create_index('idx')

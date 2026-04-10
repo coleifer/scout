@@ -36,7 +36,7 @@ Features
 * besides full-text search, perform complex filtering based on metadata values.
 * global attachment search and filtering.
 * comprehensive unit-tests.
-* supports SQLite `FTS4 <http://sqlite.org/fts3.html>`_.
+* supports SQLite `FTS5 <http://sqlite.org/fts5.html>`_.
 
 named in honor of the best dog ever,
 
