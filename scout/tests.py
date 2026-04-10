@@ -1930,6 +1930,21 @@ class TestScopeToContent(FTS5TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(self._contents(data), ['secret formula'])
 
+    def test_column_filter_injection(self):
+        self._add('harmless content', identifier='secret data')
+        try:
+            results = self._search('identifier : secret')
+        except InvalidSearchException:
+            results = []
+        self.assertEqual(results, [])
+
+        # HTTP level: should be 200 with no results, or 400 if FTS5
+        # rejects the nested column filter.
+        data, status = self._http_search('identifier : secret')
+        self.assertIn(status, (200, 400))
+        if status == 200:
+            self.assertEqual(self._contents(data), [])
+
 
 class TestFTSQueries(FTS5TestCase):
     """
@@ -2083,6 +2098,14 @@ class TestFTSQueries(FTS5TestCase):
         data = self.assertHTTPResults('believe', [3, 0])
         self.assertEqual(data['search_term'], 'believe')
         self.assertEqual(data['ranking'], 'bm25')
+
+    def test_documents_endpoint_queries(self):
+        for phrase, n in (('believe', 2), ('man OR hope', 2),
+                          ('"true faith"', 1), ('beli*', 2),
+                          ('^faith AND thing', 1)):
+            data, status = self._http_search_docs(phrase)
+            self.assertEqual(status, 200)
+            self.assertEqual(len(data['documents']), n, phrase)
 
 
 class TestFTS5ErrorHandling(FTS5TestCase):
