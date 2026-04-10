@@ -423,6 +423,14 @@ Attach a PDF of the full print article:
         'downtown-park-full.pdf': open('downtown-park-full.pdf', 'rb'),
     })
 
+Download the attachment to a local file:
+
+.. code-block:: python
+
+    raw_bytes = scout.download_attachment(doc['id'], 'downtown-park-full.pdf')
+    with open('downloaded-article.pdf', 'wb') as fh:
+        fh.write(raw_bytes)
+
 Later, find all PDF attachments across the articles index:
 
 .. code-block:: python
