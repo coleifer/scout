@@ -9,6 +9,10 @@ This document describes changes to Scout from one release to another.
   stricter about search queries, but also more performant and more powerful.
   We're going to bet on the future rather than staying with FTS4, even though
   it is more convenient.
+* Use a separate doc lookup table for O(log(N)) lookups by identifier instead
+  of previous implementation which required table scan of the index. This is a
+  huge improvement for apps that utilize application-internal identifiers for
+  indexed docs.
 
 [View commits](https://github.com/coleifer/scout/compare/3.1.0...master)
 
