@@ -210,13 +210,15 @@ Search comments across all entries:
 Updating and deleting
 ^^^^^^^^^^^^^^^^^^^^^
 
+Because every document was created with an ``identifier``, we can update and
+delete without ever tracking Scout's internal integer IDs.
+
 Publish a draft by updating its metadata:
 
 .. code-block:: python
 
-    doc = scout.get_document('entry-4')
     scout.update_document(
-        document_id=doc['id'],
+        document_id='entry-4',
         metadata={
             'title': 'Pest Control',
             'url': '/blog/pest-control/',
@@ -228,8 +230,36 @@ Remove a spam comment:
 
 .. code-block:: python
 
-    doc = scout.get_document('comment-3')
-    scout.delete_document(doc['id'])
+    scout.delete_document('comment-3')
+
+Re-indexing content
+^^^^^^^^^^^^^^^^^^^
+
+Identifiers also give you upsert semantics: calling ``create_document`` with an
+identifier that already exists will update the existing document rather than
+creating a duplicate. This makes it safe to re-run your indexing script at any
+time — for example after editing a blog post:
+
+.. code-block:: python
+
+    # This updates entry-2 in place because the identifier already exists.
+    scout.create_document(
+        'Today my cat ate a spider and later he was sick. I think it was '
+        'one of those little, fast spiders.',
+        'blog-entries',
+        identifier='entry-2',
+        title='Spider Adventures (updated)',
+        url='/blog/spiders/',
+        published='true',
+        date='2026-02-03')
+
+    # Verify there is still only one document with this identifier.
+    doc = scout.get_document('entry-2')
+    print(doc['content'][:40])
+
+This pattern is convenient for a full re-index. Iterate over every post in your
+application database and call ``create_document`` with the same identifiers.
+Scout handles the create-or-update logic for you.
 
 Example 2: News Website
 ------------------------

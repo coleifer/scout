@@ -657,6 +657,104 @@ Response:
 
     {"success": true}
 
+.. _document_identifiers:
+
+Working with Document Identifiers
+----------------------------------
+
+Every document in Scout has an auto-generated integer ``id``. Optionally, you
+can also assign a user-defined ``identifier``, an application-specific string
+that lets you reference documents without tracking Scout's internal IDs.
+
+Identifiers are useful because they decouple your application's data model from
+Scout's storage. Instead of storing Scout document IDs in your application
+database, you can derive the identifier from something you already have (a
+primary key, a URL slug, a UUID, or any other unique string). This means your
+application can create, update, retrieve, and delete documents using its own
+natural keys.
+
+Creating a document with an identifier
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: console
+
+    $ curl \
+        -H "Content-Type: application/json" \
+        -d '{"content": "My blog post about cats", "indexes": ["blog"], "identifier": "post-42"}' \
+        http://localhost:8000/documents/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.create_document(
+        'My blog post about cats',
+        'blog',
+        identifier='post-42')
+
+Retrieving and updating by identifier
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Once a document has an identifier, you can use it anywhere a document ID is
+accepted - in the URL path for ``GET``, ``POST``, and ``DELETE`` requests:
+
+.. code-block:: console
+
+    $ curl localhost:8000/documents/post-42/
+
+Using the Python client:
+
+.. code-block:: python
+
+    doc = scout.get_document('post-42')
+
+Updates work the same way:
+
+.. code-block:: python
+
+    scout.update_document(
+        document_id='post-42',
+        content='My updated blog post about cats and dogs',
+        metadata={'tags': 'pets'})
+
+Upsert behavior
+^^^^^^^^^^^^^^^
+
+When you create a document with an ``identifier`` that already exists, Scout
+updates the existing document instead of creating a duplicate. This gives you
+upsert semantics - your application can push content to Scout without checking
+whether the document already exists:
+
+.. code-block:: python
+
+    # First call creates the document.
+    scout.create_document('Draft v1', 'blog', identifier='post-99')
+
+    # Second call with the same identifier updates it.
+    scout.create_document('Draft v2 — now with more content', 'blog',
+                          identifier='post-99')
+
+    # There is still only one document with identifier "post-99".
+    doc = scout.get_document('post-99')
+    print(doc['content'])  # Draft v2 — now with more content
+
+This is especially convenient when re-indexing content. You can re-run your
+indexing script without worrying about creating duplicate documents. As long as
+you provide consistent identifiers, Scout will update in place.
+
+Deleting by identifier
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: console
+
+    $ curl -X DELETE localhost:8000/documents/post-42/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.delete_document('post-42')
+
 .. _attachment_list:
 
 Attachment list: "/documents/:document-id/attachments/"
