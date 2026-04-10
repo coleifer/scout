@@ -1386,6 +1386,421 @@ class TestSearchViews(BaseTestCase):
             app.config['AUTHENTICATION'] = None
 
 
+class TestDocLookupModelLevel(BaseTestCase):
+    def setUp(self):
+        super(TestDocLookupModelLevel, self).setUp()
+        self.index = Index.create(name='idx')
+
+    def test_create_with_identifier(self):
+        doc = self.index.index(content='hello', identifier='abc')
+        self.assertEqual(DocLookup.select().count(), 1)
+        lookup = DocLookup.get(DocLookup.identifier == 'abc')
+        self.assertEqual(lookup.rowid, doc.rowid)
+
+    def test_create_without_identifier(self):
+        self.index.index(content='hello')
+        self.assertEqual(DocLookup.select().count(), 0)
+
+    def test_get_document_by_identifier(self):
+        doc = self.index.index(content='hello world', identifier='my-doc')
+        found = DocLookup.get_document('my-doc')
+        self.assertEqual(found.rowid, doc.rowid)
+        self.assertEqual(found.content, 'hello world')
+
+    def test_get_document_by_rowid(self):
+        doc = self.index.index(content='hello world', identifier='my-doc')
+        found = DocLookup.get_document(doc.rowid)
+        self.assertEqual(found.content, 'hello world')
+
+    def test_get_document_by_rowid_string(self):
+        doc = self.index.index(content='hello world', identifier='my-doc')
+        found = DocLookup.get_document(str(doc.rowid))
+        self.assertEqual(found.content, 'hello world')
+
+    def test_update_identifier(self):
+        doc = self.index.index(content='hello', identifier='old-id')
+        self.index.index(content='hello updated', document=doc,
+                         identifier='new-id')
+        self.assertEqual(DocLookup.select().count(), 1)
+        lookup = DocLookup.get()
+        self.assertEqual(lookup.identifier, 'new-id')
+        self.assertEqual(lookup.rowid, doc.rowid)
+
+        # Old identifier no longer resolves.
+        self.assertRaises(Document.DoesNotExist,
+                          DocLookup.get_document, 'old-id')
+        # New one does.
+        found = DocLookup.get_document('new-id')
+        self.assertEqual(found.rowid, doc.rowid)
+
+    def test_clear_identifier(self):
+        doc = self.index.index(content='hello', identifier='temp-id')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        self.index.index(content='hello cleared', document=doc,
+                         identifier=None)
+        self.assertEqual(DocLookup.select().count(), 0)
+        self.assertRaises(Document.DoesNotExist,
+                          DocLookup.get_document, 'temp-id')
+
+    def test_reuse_identifier_on_new_document(self):
+        doc1 = self.index.index(content='first', identifier='reused')
+        # Create a second doc that takes over the identifier.
+        doc2 = self.index.index(content='second', identifier='reused')
+        self.assertEqual(DocLookup.select().count(), 1)
+        found = DocLookup.get_document('reused')
+        self.assertEqual(found.rowid, doc2.rowid)
+        self.assertNotEqual(found.rowid, doc1.rowid)
+
+    def test_multiple_documents_distinct_identifiers(self):
+        doc_a = self.index.index(content='aaa', identifier='id-a')
+        doc_b = self.index.index(content='bbb', identifier='id-b')
+        doc_c = self.index.index(content='ccc')
+
+        self.assertEqual(DocLookup.select().count(), 2)
+        self.assertEqual(DocLookup.get_document('id-a').rowid, doc_a.rowid)
+        self.assertEqual(DocLookup.get_document('id-b').rowid, doc_b.rowid)
+        # doc_c has no identifier, so looking up by its content won't work.
+        self.assertRaises(Document.DoesNotExist,
+                          DocLookup.get_document, 'id-c')
+
+    def test_swap_identifiers(self):
+        doc_a = self.index.index(content='aaa', identifier='id-a')
+        doc_b = self.index.index(content='bbb', identifier='id-b')
+
+        # Clear a, assign a's old id to b, assign b's old id to a.
+        self.index.index(content='aaa', document=doc_a, identifier=None)
+        self.index.index(content='bbb', document=doc_b, identifier='id-a')
+        self.index.index(content='aaa', document=doc_a, identifier='id-b')
+
+        self.assertEqual(DocLookup.get_document('id-a').rowid, doc_b.rowid)
+        self.assertEqual(DocLookup.get_document('id-b').rowid, doc_a.rowid)
+
+
+class TestDocLookupHTTP(BaseTestCase):
+    def setUp(self):
+        super(TestDocLookupHTTP, self).setUp()
+        self.app = app.test_client()
+        app.config['AUTHENTICATION'] = None
+        self.index = Index.create(name='idx')
+
+    def post_json(self, url, data):
+        response = self.app.post(
+            url,
+            data=json.dumps(data),
+            headers={'content-type': 'application/json'})
+        return json_load(response.data)
+
+    def put_json(self, url, data):
+        response = self.app.put(
+            url,
+            data=json.dumps(data),
+            headers={'content-type': 'application/json'})
+        return json_load(response.data)
+
+    def _create(self, content, identifier=None, **meta):
+        payload = {'content': content, 'index': 'idx'}
+        if identifier is not None:
+            payload['identifier'] = identifier
+        if meta:
+            payload['metadata'] = meta
+        return self.post_json('/documents/', payload)
+
+    def test_create_and_lookup(self):
+        resp = self._create('hello', identifier='http-doc')
+        self.assertEqual(resp['identifier'], 'http-doc')
+        doc_id = resp['id']
+
+        # Fetch by identifier.
+        detail = json_load(self.app.get('/documents/http-doc/').data)
+        self.assertEqual(detail['id'], doc_id)
+        self.assertEqual(detail['content'], 'hello')
+
+    def test_create_without_identifier_no_lookup(self):
+        self._create('no ident')
+        self.assertEqual(DocLookup.select().count(), 0)
+
+    def test_update_sets_lookup(self):
+        resp = self._create('hello')
+        doc_id = resp['id']
+
+        self.put_json('/documents/%s/' % doc_id,
+                      {'identifier': 'added-later'})
+
+        detail = json_load(self.app.get('/documents/added-later/').data)
+        self.assertEqual(detail['id'], doc_id)
+
+    def test_update_changes_lookup(self):
+        resp = self._create('hello', identifier='orig')
+        doc_id = resp['id']
+
+        self.put_json('/documents/%s/' % doc_id,
+                      {'identifier': 'changed'})
+
+        # New identifier works.
+        detail = json_load(self.app.get('/documents/changed/').data)
+        self.assertEqual(detail['id'], doc_id)
+
+        # Old identifier is gone.
+        old = self.app.get('/documents/orig/')
+        self.assertEqual(old.status_code, 404)
+
+    def test_update_clears_lookup(self):
+        resp = self._create('hello', identifier='to-clear')
+        doc_id = resp['id']
+
+        self.put_json('/documents/%s/' % doc_id,
+                      {'identifier': None})
+
+        gone = self.app.get('/documents/to-clear/')
+        self.assertEqual(gone.status_code, 404)
+        self.assertEqual(DocLookup.select().count(), 0)
+
+        # Still accessible by rowid.
+        by_id = json_load(self.app.get('/documents/%s/' % doc_id).data)
+        self.assertEqual(by_id['id'], doc_id)
+
+    def test_update_without_identifier_preserves_lookup(self):
+        resp = self._create('hello', identifier='keep-me')
+        doc_id = resp['id']
+
+        # Update only content, no identifier key at all.
+        self.put_json('/documents/%s/' % doc_id,
+                      {'content': 'updated content'})
+
+        # Lookup still works.
+        detail = json_load(self.app.get('/documents/keep-me/').data)
+        self.assertEqual(detail['id'], doc_id)
+        self.assertEqual(detail['content'], 'updated content')
+
+    def test_delete_removes_lookup(self):
+        resp = self._create('hello', identifier='doomed')
+        doc_id = resp['id']
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        self.app.delete('/documents/%s/' % doc_id)
+        self.assertEqual(DocLookup.select().count(), 0)
+
+    def test_delete_by_identifier(self):
+        self._create('hello', identifier='doomed2')
+        self.app.delete('/documents/doomed2/')
+        self.assertEqual(DocLookup.select().count(), 0)
+        self.assertEqual(Document.select().count(), 0)
+
+    def test_full_lifecycle(self):
+        # Create.
+        resp = self._create('v1', identifier='life')
+        doc_id = resp['id']
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        # Update content only — lookup preserved.
+        self.put_json('/documents/%s/' % doc_id, {'content': 'v2'})
+        self.assertEqual(
+            json_load(self.app.get('/documents/life/').data)['content'], 'v2')
+
+        # Change identifier.
+        self.put_json('/documents/%s/' % doc_id, {'identifier': 'life2'})
+        self.assertEqual(self.app.get('/documents/life/').status_code, 404)
+        self.assertEqual(
+            json_load(self.app.get('/documents/life2/').data)['id'], doc_id)
+
+        # Clear identifier.
+        self.put_json('/documents/%s/' % doc_id, {'identifier': None})
+        self.assertEqual(self.app.get('/documents/life2/').status_code, 404)
+        self.assertEqual(DocLookup.select().count(), 0)
+
+        # Re-add identifier.
+        self.put_json('/documents/%s/' % doc_id, {'identifier': 'life3'})
+        self.assertEqual(
+            json_load(self.app.get('/documents/life3/').data)['id'], doc_id)
+
+        # Delete.
+        self.app.delete('/documents/life3/')
+        self.assertEqual(DocLookup.select().count(), 0)
+        self.assertEqual(Document.select().count(), 0)
+
+    def test_create_with_identifier_dedup(self):
+        resp1 = self._create('first', identifier='dedup')
+        doc_id = resp1['id']
+
+        resp2 = self._create('second', identifier='dedup')
+        self.assertEqual(resp2['id'], doc_id)
+        self.assertEqual(resp2['content'], 'second')
+        self.assertEqual(Document.select().count(), 1)
+        self.assertEqual(DocLookup.select().count(), 1)
+
+    def test_reuse_identifier_after_delete(self):
+        resp1 = self._create('first', identifier='recycled')
+        old_id = resp1['id']
+        self.app.delete('/documents/recycled/')
+
+        self._create('xyz')  # Create a dummy row so SQLite wont't reuse rowid.
+
+        resp2 = self._create('second', identifier='recycled')
+        self.assertNotEqual(resp2['id'], old_id)
+        detail = json_load(self.app.get('/documents/recycled/').data)
+        self.assertEqual(detail['content'], 'second')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        lookup = DocLookup.get()
+        self.assertEqual(lookup.rowid, resp2['id'])
+        self.assertEqual(lookup.identifier, 'recycled')
+
+    def test_swap_identifiers(self):
+        r1 = self._create('aaa', identifier='id-a')
+        r2 = self._create('bbb', identifier='id-b')
+
+        # Clear a, move b→a, assign b to first doc.
+        self.put_json('/documents/%s/' % r1['id'], {'identifier': None})
+        self.put_json('/documents/%s/' % r2['id'], {'identifier': 'id-a'})
+        self.put_json('/documents/%s/' % r1['id'], {'identifier': 'id-b'})
+
+        self.assertEqual(
+            json_load(self.app.get('/documents/id-a/').data)['content'], 'bbb')
+        self.assertEqual(
+            json_load(self.app.get('/documents/id-b/').data)['content'], 'aaa')
+
+    def test_update_via_identifier_changes_identifier(self):
+        self._create('hello', identifier='old-name')
+        self.put_json('/documents/old-name/', {'identifier': 'new-name'})
+
+        self.assertEqual(self.app.get('/documents/old-name/').status_code, 404)
+        detail = json_load(self.app.get('/documents/new-name/').data)
+        self.assertEqual(detail['content'], 'hello')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+    def test_multiple_docs_independent_lookups(self):
+        r1 = self._create('doc1', identifier='stable')
+        r2 = self._create('doc2', identifier='volatile')
+
+        # Mutate volatile's identifier several times.
+        self.put_json('/documents/%s/' % r2['id'], {'identifier': 'v2'})
+        self.put_json('/documents/%s/' % r2['id'], {'identifier': None})
+        self.put_json('/documents/%s/' % r2['id'], {'identifier': 'v3'})
+
+        # Stable is untouched throughout.
+        detail = json_load(self.app.get('/documents/stable/').data)
+        self.assertEqual(detail['id'], r1['id'])
+        self.assertEqual(DocLookup.select().count(), 2)
+
+    def test_delete_without_identifier_no_lookup_error(self):
+        resp = self._create('bare')
+        self.assertEqual(DocLookup.select().count(), 0)
+        result = json_load(
+            self.app.delete('/documents/%s/' % resp['id']).data)
+        self.assertEqual(result, {'success': True})
+        self.assertEqual(DocLookup.select().count(), 0)
+
+    # Edge case testing.
+    def test_rapid_identifier_reassignment_chain(self):
+        """Identifier gets passed along a chain of documents like hot potato."""
+        docs = [self._create('doc%d' % i) for i in range(4)]
+        ids = [d['id'] for d in docs]
+
+        # Assign identifier to doc0, then move it down the chain.
+        for i, doc_id in enumerate(ids):
+            if i > 0:
+                self.put_json('/documents/%s/' % ids[i - 1],
+                              {'identifier': None})
+            self.put_json('/documents/%s/' % doc_id,
+                          {'identifier': 'hot-potato'})
+
+        # Only the last doc holds it.
+        detail = json_load(self.app.get('/documents/hot-potato/').data)
+        self.assertEqual(detail['id'], ids[-1])
+        self.assertEqual(DocLookup.select().count(), 1)
+
+    def test_identifier_same_as_other_docs_rowid(self):
+        """An identifier that looks like another document's rowid."""
+        r1 = self._create('first')
+        # Use r1's numeric id as a string identifier on a different doc.
+        r2 = self._create('second', identifier=str(r1['id']))
+
+        # Numeric lookup should still find doc1 (rowid takes precedence).
+        detail = json_load(self.app.get('/documents/%s/' % r1['id']).data)
+        self.assertEqual(detail['content'], 'first')
+
+        # But the identifier also resolves — if we delete doc1, the
+        # same URL now finds doc2 via identifier fallback.
+        self.app.delete('/documents/%s/' % r1['id'])
+        detail = json_load(
+            self.app.get('/documents/%s/' % r1['id']).data)
+        self.assertEqual(detail['content'], 'second')
+        self.assertEqual(detail['id'], r2['id'])
+
+    def test_dedup_post_preserves_metadata_and_indexes(self):
+        """Re-POST with same identifier carries over new metadata/indexes."""
+        Index.create(name='other')
+        self._create('v1', identifier='dup', k1='old')
+
+        resp = self.post_json('/documents/', {
+            'content': 'v2',
+            'identifier': 'dup',
+            'indexes': ['idx', 'other'],
+            'metadata': {'k1': 'new', 'k2': 'added'}})
+
+        self.assertEqual(resp['content'], 'v2')
+        self.assertEqual(resp['metadata'], {'k1': 'new', 'k2': 'added'})
+        self.assertIn('other', resp['indexes'])
+        self.assertEqual(Document.select().count(), 1)
+        self.assertEqual(DocLookup.select().count(), 1)
+
+    def test_clear_and_recreate_same_request_sequence(self):
+        """Clear an identifier then immediately create a new doc with it."""
+        r1 = self._create('original', identifier='takeover')
+        self.put_json('/documents/%s/' % r1['id'], {'identifier': None})
+
+        r2 = self._create('usurper', identifier='takeover')
+        self.assertNotEqual(r1['id'], r2['id'])
+
+        detail = json_load(self.app.get('/documents/takeover/').data)
+        self.assertEqual(detail['id'], r2['id'])
+        self.assertEqual(detail['content'], 'usurper')
+
+        # Original doc is still there, just anonymous.
+        orig = json_load(self.app.get('/documents/%s/' % r1['id']).data)
+        self.assertEqual(orig['content'], 'original')
+        self.assertIn(orig['identifier'], (None, ''))
+
+    def test_bulk_create_delete_lookup_consistency(self):
+        """Create many docs with identifiers, delete half, verify survivors."""
+        n = 20
+        ids = {}
+        for i in range(n):
+            resp = self._create('doc-%d' % i, identifier='id-%d' % i)
+            ids[i] = resp['id']
+
+        # Delete even-numbered docs.
+        for i in range(0, n, 2):
+            self.app.delete('/documents/id-%d/' % i)
+
+        self.assertEqual(DocLookup.select().count(), n // 2)
+        self.assertEqual(Document.select().count(), n // 2)
+
+        for i in range(n):
+            resp = self.app.get('/documents/id-%d/' % i)
+            if i % 2 == 0:
+                self.assertEqual(resp.status_code, 404)
+            else:
+                self.assertEqual(resp.status_code, 200)
+                data = json_load(resp.data)
+                self.assertEqual(data['id'], ids[i])
+
+    def test_identifier_with_special_characters(self):
+        """Identifiers with URL-unfriendly characters."""
+        for ident in ('has spaces', 'slashes/in/it', 'q?mark', 'pct%20enc'):
+            resp = self._create('content', identifier=ident)
+            # Round-trip through the DB — fetch by rowid, check identifier.
+            detail = json_load(
+                self.app.get('/documents/%s/' % resp['id']).data)
+            self.assertEqual(detail['identifier'], ident)
+            self.assertEqual(DocLookup.select().where(
+                DocLookup.identifier == ident).count(), 1)
+            # Clean up for next iteration.
+            self.app.delete('/documents/%s/' % resp['id'])
+            self.assertEqual(DocLookup.select().count(), 0)
+
+
 class FlaskScout(Scout):
     def __init__(self, flask_app, key=None):
         self.flask_client = flask_app.test_client()

@@ -231,6 +231,10 @@ class Index(BaseModel):
                 DocLookup.replace(
                     rowid=document.rowid,
                     identifier=identifier).execute()
+            elif document.identifier:
+                (DocLookup.delete()
+                 .where(DocLookup.rowid == document.rowid)
+                 .execute())
 
         self.add_to_index(document)
         if metadata:

@@ -336,11 +336,14 @@ class DocumentView(_FileProcessingView):
 
         if data.get('identifier'):
             try:
-                document = self._get_document(data['identifier'])
-            except NotFound:
-                pass
-            else:
+                doc = (Document
+                       .select()
+                       .join(DocLookup, on=(DocLookup.rowid == Document.rowid))
+                       .where(DocLookup.identifier == data['identifier'])
+                       .get())
                 return self.update(data['identifier'])
+            except Document.DoesNotExist:
+                pass
 
         identifier = data.get('identifier')
         document = Document.create(
@@ -384,6 +387,12 @@ class DocumentView(_FileProcessingView):
             document.identifier = data['identifier']
             DocLookup.replace(rowid=document.rowid,
                               identifier=document.identifier).execute()
+            save_document = True
+        elif 'identifier' in data and document.identifier:
+            document.identifier = ''
+            (DocLookup.delete()
+             .where(DocLookup.rowid == document.rowid)
+             .execute())
             save_document = True
 
         if save_document:

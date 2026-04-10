@@ -38,10 +38,6 @@ Features
 * comprehensive unit-tests.
 * supports SQLite `FTS5 <http://sqlite.org/fts5.html>`_.
 
-named in honor of the best dog ever,
-
-.. image:: http://media.charlesleifer.com/blog/photos/p1473037171.1.JPG
-
 Table of contents
 -----------------
 
@@ -59,6 +55,9 @@ Contents:
    deployment
    hacks
 
+named in honor of the best dog ever,
+
+.. image:: http://media.charlesleifer.com/blog/photos/p1473037171.1.JPG
 
 Indices and tables
 ==================
