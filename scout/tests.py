@@ -2117,7 +2117,7 @@ class TestFTS5ErrorHandling(FTS5TestCase):
             self.assertEqual(status, 400)
             self.assertIn('error', data)
 
-            data, status = self._http_search_docs('"unbalanced')
+            data, status = self._http_search_docs(case)
             self.assertEqual(status, 400)
             self.assertIn('error', data)
 
