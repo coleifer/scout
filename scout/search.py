@@ -35,7 +35,7 @@ class DocumentSearch(object):
             # scoped while "hope" searches all columns.
             try:
                 query = query.where(
-                    Document.match('content : (%s)' % phrase))
+                    Document.match('content: (%s)' % phrase))
             except Exception:
                 raise InvalidSearchException(
                     'Invalid search query "%s". Please check your query '
