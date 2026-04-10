@@ -149,9 +149,9 @@ Full-text search over all published entries:
 
     results = scout.get_index('blog-entries', q='spiders', published='true')
     for doc in results['documents']:
-        print(doc['metadata']['title'], '-', doc['metadata']['url'])
-    # Spider Adventures - /blog/spiders/
-    # More Spider News - /blog/more-spiders/
+        print(doc['metadata']['title'], '-', doc['metadata']['url'], doc['score'])
+    # Spider Adventures - /blog/spiders/ -0.268...
+    # More Spider News - /blog/more-spiders/ -0.252...
 
 Search with a wildcard to match prefixes:
 
@@ -169,19 +169,18 @@ Filtering by date range (all entries from February 2026 onward):
 
     results = scout.get_index(
         'blog-entries',
-        q='*',
         published='true',
         date__ge='2026-02-01')
     for doc in results['documents']:
         print(doc['metadata']['date'], doc['metadata']['title'])
-    # 2026-02-03 Spider Adventures - /blog/spiders/
-    # 2026-03-20 More Spider News - /blog/more-spiders/
+    # 2026-02-03 Spider Adventures
+    # 2026-03-20 More Spider News
 
 Exclude drafts from results:
 
 .. code-block:: python
 
-    results = scout.get_index('blog-entries', q='*', published='true')
+    results = scout.get_index('blog-entries', published='true')
     print(len(results['documents']))  # 3 (the draft is excluded)
 
 Searching comments
@@ -193,7 +192,6 @@ Find all non-spam comments on a particular entry:
 
     results = scout.get_index(
         'blog-comments',
-        q='*',
         entry_id='entry-2',
         spam='false')
     for doc in results['documents']:
@@ -354,7 +352,7 @@ Filter articles by section:
 
 .. code-block:: python
 
-    results = scout.get_index('articles', q='*', section='business')
+    results = scout.get_index('articles', section='business')
     for doc in results['documents']:
         print(doc['metadata']['headline'])
     # Markets Rally on Rate Pause Signal
@@ -363,16 +361,16 @@ Search only events at a particular venue:
 
 .. code-block:: python
 
-    results = scout.get_index('events', q='*', venue='Riverside Park')
+    results = scout.get_index('events', venue='Riverside Park')
     for doc in results['documents']:
-        print(doc['metadata']['title'], '—', doc['metadata']['date'])
-    # Summer Jazz Festival — 2024-07-04
+        print(doc['metadata']['title'], '-', doc['metadata']['date'])
+    # Summer Jazz Festival - 2024-07-04
 
 Search sports results for a specific team:
 
 .. code-block:: python
 
-    results = scout.get_index('sports', q='*', home_team='Lions')
+    results = scout.get_index('sports', home_team='Lions')
     for doc in results['documents']:
         print(doc['metadata']['home_team'], 'vs', doc['metadata']['away_team'],
               doc['metadata']['score'])
@@ -408,7 +406,6 @@ Date range queries work the same way across all indexes:
 
     results = scout.get_index(
         'master',
-        q='*',
         date__ge='2024-06-10',
         date__le='2024-06-15')
     for doc in results['documents']:

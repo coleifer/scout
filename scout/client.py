@@ -81,7 +81,7 @@ class Scout(object):
                 full_url,
                 data={'data': json.dumps(json_data)},
                 files={field_name: (filename, fh, mimetype)
-                       for (field_name, filename, fh, mimetype) in form_files},
+                       for (field_name, filename, mimetype, fh) in form_files},
                 headers=headers)
             return resp.json()
         else:

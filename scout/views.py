@@ -175,7 +175,7 @@ class ScoutView(object):
         if not q and not allow_blank:
             error('Search term is required.')
 
-        include_score = q and ranking != SEARCH_NONE
+        include_score = q and q != '*' and ranking != SEARCH_NONE
 
         query = engine.search(q or '*', index, ranking, ordering, **filters)
         pq = self.paginated_query(query)
