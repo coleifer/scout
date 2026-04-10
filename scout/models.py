@@ -28,7 +28,7 @@ class Document(FTS5Model):
     documents to indexes.
     """
     content = SearchField()
-    identifier = SearchField()
+    identifier = SearchField(unindexed=True)
 
     class Meta:
         database = database

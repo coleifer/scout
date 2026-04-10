@@ -34,8 +34,7 @@ class DocumentSearch(object):
             # Without them: content : faith OR hope — only "faith" is
             # scoped while "hope" searches all columns.
             try:
-                query = query.where(
-                    Document.match('content: (%s)' % phrase))
+                query = query.where(Document.match(phrase))
             except Exception:
                 raise InvalidSearchException(
                     'Invalid search query "%s". Please check your query '
