@@ -257,8 +257,9 @@ class TestSearch(BaseTestCase):
         self.populate()
         # 'ranking' is not passed into _build_filter_expression, so the results
         # work as expected.
-        results = self.search('default', 'testing', ranking='bm25', page=1)
-        self.assertTrue(len(results['documents']) > 0)
+        results = list(engine.search(
+            'testing', index=self.index, ranking='bm25', k1='k1-1', page=1))
+        self.assertTrue(len(results) > 0)
 
 
 class TestModelAPIs(BaseTestCase):

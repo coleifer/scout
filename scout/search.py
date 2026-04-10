@@ -50,7 +50,8 @@ class DocumentSearch(object):
         if valid_keys:
             return reduce(operator.and_, [
                 self._build_filter_expression(key, values)
-                for key, values in filters.items()])
+                for key, values in filters.items()
+                if key not in PROTECTED_KEYS])
 
     @staticmethod
     def _build_filter_expression(key, values):
