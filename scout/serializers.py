@@ -31,7 +31,6 @@ class DocumentSerializer(object):
             'filename': attachment.filename,
             'mimetype': attachment.mimetype,
             'timestamp': str(attachment.timestamp),
-            'data_length': attachment.length,
             'data': url_for(
                 'attachment_download',
                 document_id=document.docid,

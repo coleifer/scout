@@ -97,11 +97,26 @@ class Document(FTSModel):
         return attachment
 
     def detach(self, filename):
-        return (Attachment
-                .delete()
-                .where((Attachment.document == self) &
-                       (Attachment.filename == filename))
-                .execute())
+        with database.atomic():
+            try:
+                attachment = Attachment.get(
+                    (Attachment.document == self) &
+                    (Attachment.filename == filename))
+            except Attachment.DoesNotExist:
+                return 0
+
+            blob_hash = attachment.hash
+            attachment.delete_instance()
+
+            # Clean up orphaned blob data.
+            remaining = (Attachment
+                         .select()
+                         .where(Attachment.hash == blob_hash)
+                         .count())
+            if remaining == 0:
+                BlobData.delete().where(BlobData.hash == blob_hash).execute()
+
+            return 1
 
 
 class BaseModel(Model):

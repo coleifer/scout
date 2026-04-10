@@ -259,6 +259,36 @@ class TestSearch(BaseTestCase):
             'testing', index=self.index, ranking='bm25', k1='k1-1', page=1))
         self.assertTrue(len(results) > 0)
 
+    def test_apply_sorting_string_ordering(self):
+        self.populate()
+        # Should not raise or silently ignore the ordering.
+        results = list(engine.search(
+            'testing', index=self.index, ordering='-id'))
+        ids = [doc.docid for doc in results]
+        self.assertEqual(ids, sorted(ids, reverse=True))
+
+        results2 = list(engine.search(
+            'testing', index=self.index, ordering='id'))
+        ids2 = [doc.docid for doc in results2]
+        self.assertEqual(ids2, sorted(ids2))
+
+    def test_metadata_filter_like_exprs(self):
+        self.populate()
+        results = list(engine.search(
+            'testing', index=self.index, name__contains='gie'))
+        names = sorted(set(doc.metadata['name'] for doc in results))
+        self.assertEqual(names, ['googie', 'nuggie zaizee'])
+
+        results = list(engine.search(
+            'testing', index=self.index, name__startswith='nug'))
+        names = sorted(set(doc.metadata['name'] for doc in results))
+        self.assertEqual(names, ['nuggie zaizee'])
+
+        results = list(engine.search(
+            'testing', index=self.index, name__endswith='key'))
+        names = sorted(set(doc.metadata['name'] for doc in results))
+        self.assertEqual(names, ['huey mickey'])
+
 
 class TestModelAPIs(BaseTestCase):
     def setUp(self):
@@ -384,6 +414,33 @@ class TestModelAPIs(BaseTestCase):
         assertSearch('blah', [], SEARCH_BM25)  # No results, works.
         self.assertRaises(
             InvalidSearchException, engine.search, '', SEARCH_BM25)
+
+    def test_detach_cleans_up_orphaned_blobs(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('test')
+        doc.attach('file1.txt', b'unique content')
+        self.assertEqual(BlobData.select().count(), 1)
+
+        doc.detach('file1.txt')
+        self.assertEqual(Attachment.select().count(), 0)
+        self.assertEqual(BlobData.select().count(), 0)
+
+    def test_detach_preserves_shared_blobs(self):
+        idx = Index.create(name='idx')
+        doc1 = idx.index('doc1')
+        doc2 = idx.index('doc2')
+        # Same content → same hash → same BlobData row.
+        doc1.attach('a.txt', b'shared data')
+        doc2.attach('b.txt', b'shared data')
+        self.assertEqual(BlobData.select().count(), 1)
+
+        doc1.detach('a.txt')
+        self.assertEqual(Attachment.select().count(), 1)
+        # Blob still referenced by doc2's attachment.
+        self.assertEqual(BlobData.select().count(), 1)
+
+        doc2.detach('b.txt')
+        self.assertEqual(BlobData.select().count(), 0)
 
 
 class TestSearchViews(BaseTestCase):
@@ -556,13 +613,11 @@ class TestSearchViews(BaseTestCase):
         a2 = Attachment.get(Attachment.filename == 'test2.jpg')
         a1_data = {
             'data': '/documents/1/attachments/test1.txt/download/',
-            'data_length': 9,
             'mimetype': 'text/plain',
             'timestamp': str(a1.timestamp),
             'filename': 'test1.txt'}
         a2_data = {
             'data': '/documents/1/attachments/test2.jpg/download/',
-            'data_length': 9,
             'mimetype': 'image/jpeg',
             'timestamp': str(a2.timestamp),
             'filename': 'test2.jpg'}
@@ -605,6 +660,35 @@ class TestSearchViews(BaseTestCase):
             ],
         })
 
+    def test_document_detail_query_count_with_attachments(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('test doc')
+        for i in range(10):
+            doc.attach('a%s.txt' % i, b'aaa')
+
+        with assert_query_count(4):
+            # 1. Get document
+            # 2. Get attachments
+            # 3. Get metadata
+            # 4. Get indexes
+            response = self.app.get('/documents/%s/' % doc.get_id())
+
+        data = json_load(response.data)
+        self.assertEqual(len(data['attachments']), 10)
+
+        with assert_query_count(8) as ct:
+            # Doc count
+            # Prefetch doc index many-to-many
+            # Prefetch index names
+            # Prefetch metadata
+            # Prefetch attachments
+            # Get page
+            # Get filtered count
+            # Pagination
+            response = self.app.get('/documents/')
+
+        data = json_load(response.data)
+
     def test_index_document_validation(self):
         idx = Index.create(name='idx')
         response = self.post_json('/documents/', {'content': 'foo'})
@@ -631,6 +715,25 @@ class TestSearchViews(BaseTestCase):
             response['error'],
             'The following indexes were not found: missing, blah.')
         self.assertEqual(Document.select().count(), 0)
+
+    def test_parse_post_rejects_unknown_keys_with_none_value(self):
+        idx = Index.create(name='idx')
+        response = self.post_json('/documents/', {
+            'content': 'test',
+            'index': 'idx',
+            'evil_key': None})
+        self.assertIn('error', response)
+        self.assertIn('evil_key', response['error'])
+        self.assertEqual(Document.select().count(), 0)
+
+    def test_parse_post_rejects_unknown_keys_with_empty_string(self):
+        idx = Index.create(name='idx')
+        response = self.post_json('/documents/', {
+            'content': 'test',
+            'index': 'idx',
+            'bad': ''})
+        self.assertIn('error', response)
+        self.assertIn('bad', response['error'])
 
     def test_document_detail_get(self):
         idx = Index.create(name='idx')
@@ -700,6 +803,21 @@ class TestSearchViews(BaseTestCase):
         # Sanity check.
         self.assertEqual(Document.select().count(), 2)
 
+    def test_create_with_existing_identifier_updates(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('original', identifier='ident-1')
+        doc.metadata = {'k': 'v'}
+
+        response = self.post_json('/documents/', {
+            'content': 'updated via create',
+            'index': 'idx',
+            'identifier': 'ident-1',
+            'metadata': {'k': 'new-v'}})
+
+        self.assertEqual(Document.select().count(), 1)
+        self.assertEqual(response['content'], 'updated via create')
+        self.assertEqual(response['metadata'], {'k': 'new-v'})
+
     def test_document_detail_update_attachments(self):
         idx = Index.create(name='idx')
         doc = idx.index('test doc', foo='bar', nug='baze')
@@ -717,13 +835,11 @@ class TestSearchViews(BaseTestCase):
         a2 = Attachment.get(Attachment.filename == 'foo2.jpg')
         a1_data = {
             'mimetype': 'image/jpeg',
-            'data_length': 2,
             'data': '/documents/%s/attachments/foo.jpg/download/' % doc.docid,
             'timestamp': str(a1.timestamp),
             'filename': 'foo.jpg'}
         a2_data = {
             'mimetype': 'image/jpeg',
-            'data_length': 2,
             'data': '/documents/%s/attachments/foo2.jpg/download/' % doc.docid,
             'timestamp': str(a2.timestamp),
             'filename': 'foo2.jpg'}
@@ -775,6 +891,76 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(
             [d.get_id() for d in alt_idx.documents],
             [d1.get_id()])
+
+    def test_document_delete_cleans_orphaned_blobs(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('doc with files')
+        doc.attach('a.txt', b'data-a')
+        doc.attach('b.txt', b'data-b')
+        self.assertEqual(BlobData.select().count(), 2)
+
+        response = self.app.delete('/documents/%s/' % doc.get_id())
+        self.assertEqual(json_load(response.data), {'success': True})
+        self.assertEqual(Attachment.select().count(), 0)
+        self.assertEqual(BlobData.select().count(), 0)
+
+    def test_document_delete_preserves_shared_blobs(self):
+        idx = Index.create(name='idx')
+        d1 = idx.index('doc1')
+        d2 = idx.index('doc2')
+        d1.attach('f.txt', b'shared')
+        d2.attach('g.txt', b'shared')
+        self.assertEqual(BlobData.select().count(), 1)
+
+        self.app.delete('/documents/%s/' % d1.get_id())
+        # Blob still referenced by d2.
+        self.assertEqual(BlobData.select().count(), 1)
+
+    def test_validate_indexes_empty_list_clears(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('test')
+        url = '/documents/%s/' % doc.get_id()
+
+        # Explicitly clear indexes.
+        response = self.post_json(url, {'indexes': []})
+        doc_db = (Document.all()
+                  .where(Document._meta.primary_key == doc.get_id())
+                  .get())
+        self.assertEqual(list(doc_db.get_indexes()), [])
+
+    def test_validate_indexes_absent_key_preserves(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('test')
+        url = '/documents/%s/' % doc.get_id()
+
+        # Omitting indexes will preserve existing indexes.
+        response = self.post_json(url, {'content': 'updated'})
+        doc_db = (Document.all()
+                  .where(Document._meta.primary_key == doc.get_id())
+                  .get())
+        self.assertEqual([i.name for i in doc_db.get_indexes()], ['idx'])
+
+    def test_update_document_empty_content(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('original content')
+        url = '/documents/%s/' % doc.get_id()
+
+        self.post_json(url, {'content': ''})
+        doc_db = (Document.all()
+                  .where(Document._meta.primary_key == doc.get_id())
+                  .get())
+        self.assertEqual(doc_db.content, '')
+
+    def test_update_document_empty_identifier(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('text', identifier='old-id')
+        url = '/documents/%s/' % doc.get_id()
+
+        self.post_json(url, {'identifier': 'new-id'})
+        doc_db = (Document.all()
+                  .where(Document._meta.primary_key == doc.get_id())
+                  .get())
+        self.assertEqual(doc_db.identifier, 'new-id')
 
     def test_attachment_views(self):
         idx = Index.create(name='idx')
@@ -1124,6 +1310,17 @@ class TestScoutClient(BaseTestCase):
         fetched = self.scout.get_document(doc['id'])
         self.assertEqual(fetched['content'], 'modified')
 
+    def test_update_document_by_identifier(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('text', 'idx', identifier='my-id')
+        updated = self.scout.update_document(
+            identifier='my-id', content='updated text')
+        self.assertEqual(updated['content'], 'updated text')
+        self.assertEqual(updated['identifier'], 'my-id')
+
+        fetched = self.scout.get_document(doc['id'])
+        self.assertEqual(fetched['content'], 'updated text')
+
     def test_update_document_metadata(self):
         self.scout.create_index('idx')
         doc = self.scout.create_document('text', 'idx', color='red')
@@ -1287,6 +1484,17 @@ class TestScoutClient(BaseTestCase):
         detail = self.scout.get_attachment(doc['id'], 'pic.png')
         self.assertEqual(detail['filename'], 'pic.png')
         self.assertEqual(detail['mimetype'], 'image/png')
+
+    def test_upload_binary_file_with_crlf(self):
+        self.scout.create_index('idx')
+        evil_data = b'\r\n--boundary\r\nContent-Disposition: bad\r\n\r\nfake'
+        doc = self.scout.create_document(
+            'binary test', 'idx',
+            attachments={'evil.bin': BytesIO(evil_data)})
+        self.assertEqual(len(doc['attachments']), 1)
+
+        downloaded = self.scout.download_attachment(doc['id'], 'evil.bin')
+        self.assertEqual(downloaded, evil_data)
 
     def test_download_attachment(self):
         self.scout.create_index('idx')

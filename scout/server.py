@@ -158,6 +158,13 @@ def get_option_parser():
         '--logfile',
         dest='logfile',
         help='Log file')
+    parser.add_option(
+        '-m',
+        '--max-request-size',
+        default=64 * 1024 * 1024,
+        dest='max_request_size',
+        help='Maximum size of request body in bytes, default 64MB',
+        type='int')
     return parser
 
 def parse_options():
@@ -186,6 +193,9 @@ def parse_options():
         pragmas.append(('synchronous', 0))
 
     config['SQLITE_PRAGMAS'] = pragmas
+
+    if options.max_request_size:
+        config['MAX_CONTENT_LENGTH'] = options.max_request_size
 
     # Handle command-line options. These values will override any values
     # that may have been specified in the config file.

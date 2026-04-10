@@ -43,7 +43,11 @@ class DocumentSearch(object):
             query = query.where(metadata_expr)
 
         # Allow sorting and ranking.
-        return self.apply_rank_and_sort(query, ranking, ordering or ())
+        if ordering is None:
+            ordering = ()
+        elif isinstance(ordering, str):
+            ordering = [ordering]
+        return self.apply_rank_and_sort(query, ranking, ordering)
 
     def get_metadata_filter_expression(self, filters):
         valid_keys = [key for key in filters if key not in PROTECTED_KEYS]
@@ -65,9 +69,9 @@ class DocumentSearch(object):
             'le': operator.le,
             'lt': operator.lt,
             'in': in_,
-            'contains': lambda l, r: operator.pow(l, '%%%s%%' % r),
-            'startswith': lambda l, r: operator.pow(l, '%s%%' % r),
-            'endswith': lambda l, r: operator.pow(l, '%%%s' % r),
+            'contains': lambda l, r: l.contains(r),
+            'startswith': lambda l, r: l.startswith(r),
+            'endswith': lambda l, r: l.endswith(r),
             'regex': lambda l, r: l.regexp(r),
         }
         if key.find('__') != -1:
@@ -118,6 +122,8 @@ class DocumentSearch(object):
             error('Unrecognized ranking: "%s"' % ranking)
 
     def apply_sorting(self, query, ordering, mapping, default):
+        if isinstance(ordering, str):
+            ordering = [ordering] if ordering else []
         sortables = [part.strip() for part in ordering]
         accum = []
         for identifier in sortables:

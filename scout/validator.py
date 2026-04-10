@@ -36,27 +36,34 @@ class RequestValidator(object):
         required = set(required_keys or ())
         optional = set(optional_keys or ())
         all_keys = required | optional
+
+        # Keys that carry a meaningful value (for required-field checks).
         keys_present = set(key for key in data if data[key] not in ('', None))
+        # All keys in the payload (for unknown-key checks).
+        all_keys_in_payload = set(data.keys())
 
         missing = required - keys_present
         if missing:
             error('Missing required fields: %s' % ', '.join(sorted(missing)))
 
-        invalid_keys = keys_present - all_keys
+        invalid_keys = all_keys_in_payload - all_keys
         if invalid_keys:
             error('Invalid keys: %s' % ', '.join(sorted(invalid_keys)))
 
         return data
 
     def validate_indexes(self, data, required=True):
+        has_index_key = 'index' in data or 'indexes' in data
         if data.get('index'):
             index_names = (data['index'],)
         elif data.get('indexes'):
             index_names = data['indexes']
-        elif ('index' in data or 'indexes' in data) and not required:
-            return ()
+        elif has_index_key and not required:
+            return ()  # Key present but not required -> clear indexes.
+        elif has_index_key and required:
+            return None  # Will trigger error.
         else:
-            return None
+            return None  # Key not present at all.
 
         indexes = list(Index.select().where(Index.name << index_names))
 

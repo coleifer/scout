@@ -278,7 +278,7 @@ class DocumentView(_FileProcessingView):
         # Allow filtering by index.
         idx_list = request.args.getlist('index')
         if idx_list:
-            indexes = Index.select(Index.id).where(Index.name << idx_list)
+            indexes = Index.select(Index.id).where(Index.name.in_(idx_list))
         else:
             indexes = None
 
@@ -331,10 +331,10 @@ class DocumentView(_FileProcessingView):
             'metadata'])
 
         save_document = False
-        if data.get('content'):
+        if 'content' in data and data['content'] is not None:
             document.content = data['content']
             save_document = True
-        if data.get('identifier'):
+        if 'identifier' in data and data['identifier'] is not None:
             document.identifier = data['identifier']
             save_document = True
 
@@ -369,6 +369,11 @@ class DocumentView(_FileProcessingView):
         document = self._get_document(pk)
 
         with database.atomic():
+            attach_q = (Attachment
+                        .select(Attachment.hash)
+                        .where(Attachment.document == document))
+            attachment_hashes = [a.hash for a in attach_q]
+
             (IndexDocument
              .delete()
              .where(IndexDocument.document == document)
@@ -379,6 +384,17 @@ class DocumentView(_FileProcessingView):
              .execute())
             Metadata.delete().where(Metadata.document == document).execute()
             document.delete_instance()
+
+            for blob_hash in attachment_hashes:
+                remaining = (Attachment
+                             .select()
+                             .where(Attachment.hash == blob_hash)
+                             .count())
+                if remaining == 0:
+                    (BlobData.delete()
+                     .where(BlobData.hash == blob_hash)
+                     .execute())
+
             logger.info('Deleted document with id = %s', document.get_id())
 
         return jsonify({'success': True})
@@ -409,6 +425,7 @@ class AttachmentView(_FileProcessingView):
             'document': Attachment.document,
             'hash': Attachment.hash,
             'filename': Attachment.filename,
+            'length': Attachment.length,
             'mimetype': Attachment.mimetype,
             'timestamp': Attachment.timestamp,
             'id': Attachment.id,

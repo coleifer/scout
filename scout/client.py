@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import mimetypes
 import os
@@ -62,6 +63,8 @@ class Scout(object):
                 data = file_obj.read()
             except AttributeError:
                 data = bytes(file_obj)
+            if isinstance(data, str):
+                data = data.encode('utf8')
             mimetype = mimetypes.guess_type(filename)[0]
             form_files.append((
                 'file_%s' % i,
@@ -70,34 +73,32 @@ class Scout(object):
                 data))
 
         part_boundary = '--' + boundary
-        parts = [
-            part_boundary,
-            'Content-Disposition: form-data; name="data"',
-            '',
-            json.dumps(json_data)]
-        for field_name, filename, mimetype, data in form_files:
-            parts.extend((
-                part_boundary,
-                'Content-Disposition: file; name="%s"; filename="%s"' % (
-                    field_name, filename),
-                'Content-Type: %s' % mimetype,
-                '',
-                data))
-        parts.append('--' + boundary + '--')
-        parts.append('')
+        buf = io.BytesIO()
+
+        def write_text(s):
+            buf.write(s.encode('utf-8'))
+
+        # JSON data part.
+        write_text(part_boundary + '\r\n')
+        write_text('Content-Disposition: form-data; name="data"\r\n\r\n')
+        write_text(json.dumps(json_data))
+
+        # File parts.
+        for field_name, filename, mimetype, file_data in form_files:
+            write_text('\r\n' + part_boundary + '\r\n')
+            write_text(
+                'Content-Disposition: file; name="%s"; filename="%s"\r\n'
+                % (field_name, filename))
+            write_text('Content-Type: %s\r\n\r\n' % mimetype)
+            buf.write(file_data)  # raw bytes, no \r\n joining
+
+        write_text('\r\n--' + boundary + '--\r\n')
+        data = buf.getvalue()
 
         headers = {'Content-Type': 'multipart/form-data; boundary=%s' %
                    boundary}
         if self.key:
             headers['key'] = self.key
-
-        accum = []
-        for part in parts:
-            if isinstance(part, bytes):
-                accum.append(part)
-            else:
-                accum.append(part.encode('utf8'))
-        data = b'\r\n'.join(accum)
 
         request = Request(self.get_full_url(url), data=data, headers=headers)
         return json.loads(urlopen(request).read())
@@ -160,7 +161,8 @@ class Scout(object):
         if not data and not attachments:
             raise ValueError('Nothing to update.')
 
-        return self.post('/documents/%s/' % document_id, data, attachments)
+        return self.post('/documents/%s/' % (document_id or identifier),
+                         data, attachments)
 
     def delete_document(self, document_id=None):
         if not document_id:
