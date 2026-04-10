@@ -147,7 +147,7 @@ Full-text search over all published entries:
 
 .. code-block:: python
 
-    results = scout.get_index('blog-entries', q='spiders', published='true')
+    results = scout.get_documents(q='spiders', index='blog-entries', published='true')
     for doc in results['documents']:
         print(doc['metadata']['title'], '-', doc['metadata']['url'], doc['score'])
     # Spider Adventures - /blog/spiders/ -0.268...
@@ -157,7 +157,7 @@ Search with a wildcard to match prefixes:
 
 .. code-block:: python
 
-    results = scout.get_index('blog-entries', q='spid*')
+    results = scout.get_documents(q='spid*', index='blog-entries')
     for doc in results['documents']:
         print(doc['metadata']['title'])
     # Spider Adventures
@@ -167,8 +167,8 @@ Filtering by date range (all entries from February 2026 onward):
 
 .. code-block:: python
 
-    results = scout.get_index(
-        'blog-entries',
+    results = scout.get_documents(
+        index='blog-entries',
         published='true',
         date__ge='2026-02-01')
     for doc in results['documents']:
@@ -180,7 +180,7 @@ Exclude drafts from results:
 
 .. code-block:: python
 
-    results = scout.get_index('blog-entries', published='true')
+    results = scout.get_documents(index='blog-entries', published='true')
     print(len(results['documents']))  # 3 (the draft is excluded)
 
 Searching comments
@@ -190,8 +190,8 @@ Find all non-spam comments on a particular entry:
 
 .. code-block:: python
 
-    results = scout.get_index(
-        'blog-comments',
+    results = scout.get_documents(
+        index='blog-comments',
         entry_id='entry-2',
         spam='false')
     for doc in results['documents']:
@@ -202,7 +202,7 @@ Search comments across all entries:
 
 .. code-block:: python
 
-    results = scout.get_index('blog-comments', q='spiders', spam='false')
+    results = scout.get_documents(q='spiders', index='blog-comments', spam='false')
     for doc in results['documents']:
         print(doc['metadata']['author'], 'on', doc['metadata']['entry_id'])
     # bob on entry-2
@@ -343,7 +343,7 @@ Search only articles:
 
 .. code-block:: python
 
-    results = scout.get_index('articles', q='park')
+    results = scout.get_documents(q='park', index='articles')
     for doc in results['documents']:
         print(doc['metadata']['headline'])
     # City Council Approves Downtown Park
@@ -352,7 +352,7 @@ Filter articles by section:
 
 .. code-block:: python
 
-    results = scout.get_index('articles', section='business')
+    results = scout.get_documents(index='articles', section='business')
     for doc in results['documents']:
         print(doc['metadata']['headline'])
     # Markets Rally on Rate Pause Signal
@@ -361,7 +361,7 @@ Search only events at a particular venue:
 
 .. code-block:: python
 
-    results = scout.get_index('events', venue='Riverside Park')
+    results = scout.get_documents(index='events', venue='Riverside Park')
     for doc in results['documents']:
         print(doc['metadata']['title'], '-', doc['metadata']['date'])
     # Summer Jazz Festival - 2024-07-04
@@ -370,7 +370,7 @@ Search sports results for a specific team:
 
 .. code-block:: python
 
-    results = scout.get_index('sports', home_team='Lions')
+    results = scout.get_documents(index='sports', home_team='Lions')
     for doc in results['documents']:
         print(doc['metadata']['home_team'], 'vs', doc['metadata']['away_team'],
               doc['metadata']['score'])
@@ -384,6 +384,7 @@ The master index lets you search across every content type at once:
 .. code-block:: python
 
     results = scout.get_index('master', q='park')
+    # OR: results = scout.get_documents(q='park', index='master')
     for doc in results['documents']:
         print(doc['indexes'], doc['content'][:60] + '...')
     # ['articles', 'master'] The city council voted Tuesday to approve the new do...
@@ -410,6 +411,18 @@ Date range queries work the same way across all indexes:
         date__le='2024-06-15')
     for doc in results['documents']:
         print(doc['metadata']['date'], doc['content'][:50] + '...')
+
+Equivalent example specifying indexes explicitly:
+
+.. code-block:: python
+
+    results = scout.get_documents(
+        index=['articles', 'events', 'sports'],
+        date__ge='2024-06-10',
+        date__le='2024-06-15')
+    for doc in results['documents']:
+        print(doc['metadata']['date'], doc['content'][:50] + '...')
+
 
 Working with attachments
 ^^^^^^^^^^^^^^^^^^^^^^^^^
