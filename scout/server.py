@@ -186,7 +186,9 @@ def parse_options():
     elif args:
         config['DATABASE'] = args[0]
 
-    pragmas = [('journal_mode', options.journal_mode)]
+    pragmas = [
+        ('journal_mode', options.journal_mode),
+        ('foreign_keys', 0)]
     if options.cache_size:
         pragmas.append(('cache_size', -1024 * options.cache_size))
     if not options.fsync:

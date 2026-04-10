@@ -9,6 +9,11 @@ from urllib.parse import urlencode
 from urllib.request import Request
 from urllib.request import urlopen
 
+try:
+    import requests
+except ImportError:
+    requests = None
+
 
 class Scout(object):
     def __init__(self, endpoint='http://127.0.0.1:8000', key=None):
@@ -56,21 +61,37 @@ class Scout(object):
             raise ValueError('One or more files is required. Files should be '
                              'passed as a dictionary of filename: file-like-'
                              'object.')
-        boundary = choose_boundary()
+
         form_files = []
         for i, (filename, file_obj) in enumerate(files.items()):
-            try:
-                data = file_obj.read()
-            except AttributeError:
-                data = bytes(file_obj)
-            if isinstance(data, str):
-                data = data.encode('utf8')
             mimetype = mimetypes.guess_type(filename)[0]
             form_files.append((
                 'file_%s' % i,
                 filename,
                 mimetype or 'application/octet-stream',
-                data))
+                file_obj))
+
+        full_url = self.get_full_url(url)
+
+        if requests is not None:
+            headers = {}
+            if self.key:
+                headers['key'] = self.key
+            resp = requests.post(
+                full_url,
+                data={'data': json.dumps(json_data)},
+                files={field_name: (filename, fh, mimetype)
+                       for (field_name, filename, fh, mimetype) in form_files},
+                headers=headers)
+            return resp.json()
+        else:
+            return json.loads(self._multipart_post(
+                full_url,
+                json_data,
+                form_files))
+
+    def _multipart_post(self, url, json_data, form_files):
+        boundary = choose_boundary()
 
         part_boundary = '--' + boundary
         buf = io.BytesIO()
@@ -84,24 +105,30 @@ class Scout(object):
         write_text(json.dumps(json_data))
 
         # File parts.
-        for field_name, filename, mimetype, file_data in form_files:
+        for field_name, filename, mimetype, fh in form_files:
             write_text('\r\n' + part_boundary + '\r\n')
             write_text(
-                'Content-Disposition: file; name="%s"; filename="%s"\r\n'
+                'Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
                 % (field_name, filename))
             write_text('Content-Type: %s\r\n\r\n' % mimetype)
+            try:
+                file_data = fh.read()
+            except AttributeError:
+                file_data = fh
+            if isinstance(file_data, str):
+                file_data = file_data.encode('utf8')
             buf.write(file_data)  # raw bytes, no \r\n joining
 
         write_text('\r\n--' + boundary + '--\r\n')
         data = buf.getvalue()
 
-        headers = {'Content-Type': 'multipart/form-data; boundary=%s' %
+        headers = {'Content-Type': 'multipart/form-data; boundary="%s"' %
                    boundary}
         if self.key:
             headers['key'] = self.key
 
-        request = Request(self.get_full_url(url), data=data, headers=headers)
-        return json.loads(urlopen(request).read())
+        request = Request(url, data=data, headers=headers)
+        return urlopen(request).read()
 
     def delete(self, url):
         headers = {}
