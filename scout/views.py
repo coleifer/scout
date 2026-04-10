@@ -273,7 +273,8 @@ class IndexView(ScoutView):
 
 
 class _FileProcessingView(ScoutView):
-    def _get_document(self, pk):
+    @staticmethod
+    def _get_document(pk):
         if isinstance(pk, int) or (pk and pk.isdigit()):
             query = Document.all().where(Document._meta.primary_key == pk)
             try:
@@ -505,9 +506,7 @@ class AttachmentView(_FileProcessingView):
 
 
 def attachment_download(document_id, pk):
-    document = get_object_or_404(
-        Document.all(),
-        Document._meta.primary_key == document_id)
+    document = _FileProcessingView._get_document(document_id)
     attachment = get_object_or_404(
         document.attachments,
         Attachment.filename == pk)

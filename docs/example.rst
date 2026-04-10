@@ -95,11 +95,11 @@ that search results can display a thumbnail:
 .. code-block:: python
 
     scout.attach_files(
-        scout.get_document('entry-2')['id'],
+        'entry-2',
         {'spider.jpg': open('/path/to/spider.jpg', 'rb')})
 
     scout.attach_files(
-        scout.get_document('entry-3')['id'],
+        'entry-3',
         {'spider-remnants.png': open('/path/to/spider-remnants.png', 'rb')})
 
 When you retrieve or search documents later, each result will include an
@@ -255,7 +255,7 @@ time — for example after editing a blog post:
 
     # Verify there is still only one document with this identifier.
     doc = scout.get_document('entry-2')
-    print(doc['content'][:40])
+    print(doc['content'][-20:])  # ...little, fast spiders.
 
 This pattern is convenient for a full re-index. Iterate over every post in your
 application database and call ``create_document`` with the same identifiers.
@@ -461,8 +461,7 @@ Attach a PDF of the full print article:
 
 .. code-block:: python
 
-    doc = scout.get_document('article-100')
-    scout.attach_files(doc['id'], {
+    scout.attach_files('article-100', {
         'downtown-park-full.pdf': open('downtown-park-full.pdf', 'rb'),
     })
 
@@ -470,7 +469,7 @@ Download the attachment to a local file:
 
 .. code-block:: python
 
-    raw_bytes = scout.download_attachment(doc['id'], 'downtown-park-full.pdf')
+    raw_bytes = scout.download_attachment('article-100', 'downtown-park-full.pdf')
     with open('downloaded-article.pdf', 'wb') as fh:
         fh.write(raw_bytes)
 

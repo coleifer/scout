@@ -76,7 +76,7 @@ Scout comes with a simple Python client. This document describes the client API.
 
         Update one or more attributes of a document that's stored in the database.
 
-        :param int document_id: The integer document ID, or a string identifier. At least one of ``document_id`` or ``identifier`` must be provided.
+        :param document_id: The integer document ID, or a string identifier. At least one of ``document_id`` or ``identifier`` must be provided.
         :param str content: Text content to expose for search (optional).
         :param indexes: Either the name of an index or a list of index names (optional).
         :param metadata: Arbitrary key/value pairs to store alongside the document content (optional).
@@ -89,13 +89,13 @@ Scout comes with a simple Python client. This document describes the client API.
 
         Remove a document from the database, as well as all indexes, metadata, and attachments.
 
-        :param int document_id: The integer document ID.
+        :param document_id: The integer document ID, or a user-specified unique identifier.
 
     .. py:method:: get_document(document_id)
 
         Retrieve content for the given document.
 
-        :param int document_id: The integer document ID.
+        :param document_id: The integer document ID, or a user-specified unique identifier.
 
     .. py:method:: get_documents(**kwargs)
 
@@ -119,7 +119,7 @@ Scout comes with a simple Python client. This document describes the client API.
 
     .. py:method:: attach_files(document_id, attachments)
 
-        :param document_id: The integer ID of the document.
+        :param document_id: The integer document ID or the user-specified document ``identifier``.
         :param attachments: A dictionary mapping filename to file-like object.
 
         Upload the attachments and associate them with the given document.
@@ -128,20 +128,22 @@ Scout comes with a simple Python client. This document describes the client API.
 
     .. py:method:: detach_file(document_id, filename)
 
-        :param document_id: The integer ID of the document.
+        :param document_id: The integer document ID or the user-specified document ``identifier``.
         :param filename: The filename of the attachment to remove.
 
         Detach the specified file from the document.
 
     .. py:method:: update_file(document_id, filename, file_object)
 
-        :param document_id: The integer ID of the document.
+        :param document_id: The integer document ID or the user-specified document ``identifier``.
         :param filename: The filename of the attachment to update.
         :param file_object: A file-like object.
 
         Replace the contents of the current attachment with the contents of ``file_object``.
 
     .. py:method:: get_attachments(document_id, **kwargs)
+
+        :param document_id: The integer document ID or the user-specified document ``identifier``.
 
         Retrieve a paginated list of attachments associated with the given document.
 
@@ -154,11 +156,17 @@ Scout comes with a simple Python client. This document describes the client API.
 
     .. py:method:: get_attachment(document_id, filename)
 
+        :param document_id: The integer document ID or the user-specified document ``identifier``.
+        :param filename: The filename of the attachment.
+
         Retrieve data about the given attachment.
 
         For more information, see :ref:`attachment_detail`.
 
     .. py:method:: download_attachment(document_id, filename)
+
+        :param document_id: The integer document ID or the user-specified document ``identifier``.
+        :param filename: The filename of the attachment.
 
         Download the specified attachment. Returns the raw file bytes.
 

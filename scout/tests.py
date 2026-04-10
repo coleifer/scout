@@ -1716,10 +1716,14 @@ class TestScoutClient(BaseTestCase):
         evil_data = b'\r\n--boundary\r\nContent-Disposition: bad\r\n\r\nfake'
         doc = self.scout.create_document(
             'binary test', 'idx',
+            identifier='evil-doc',
             attachments={'evil.bin': BytesIO(evil_data)})
         self.assertEqual(len(doc['attachments']), 1)
 
         downloaded = self.scout.download_attachment(doc['id'], 'evil.bin')
+        self.assertEqual(downloaded, evil_data)
+
+        downloaded = self.scout.download_attachment('evil-doc', 'evil.bin')
         self.assertEqual(downloaded, evil_data)
 
     def test_download_attachment(self):
