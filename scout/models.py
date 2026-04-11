@@ -50,11 +50,12 @@ class Document(FTS5Model):
                     .where(Metadata.document == self.rowid)
                     .tuples())
 
-    def set_metadata(self, metadata):
-        self.delete_metadata()
+    def set_metadata(self, metadata, clear=True):
+        if clear:
+            del self.metadata
         if metadata:
             (Metadata
-             .insert_many([
+             .replace_many([
                  {'key': key, 'value': value, 'document': self.rowid}
                  for key, value in metadata.items()])
              .execute())

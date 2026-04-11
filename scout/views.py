@@ -57,6 +57,11 @@ def register_views(app):
 
     document_view = DocumentView(app)
     document_view.register('document_view', '%s/documents/' % prefix)
+    app.add_url_rule(
+        '%s/documents/<document_id>/metadata/' % prefix,
+        'update_metadata',
+        view_func=authentication(app)(update_metadata),
+        methods=['POST', 'PUT'])
 
     attachment_view = AttachmentView(app)
     attachment_view.register(
@@ -458,6 +463,16 @@ class DocumentView(_FileProcessingView):
             logger.info('Deleted document with id = %s', document.get_id())
 
         return jsonify({'success': True})
+
+
+def update_metadata(document_id):
+    document = _FileProcessingView._get_document(document_id)
+    data = validator.parse_post(['metadata'], [])
+    if not data['metadata']:
+        del document.metadata
+    else:
+        document.set_metadata(data['metadata'], clear=False)
+    return jsonify(document_serializer.serialize(document))
 
 
 class AttachmentView(_FileProcessingView):

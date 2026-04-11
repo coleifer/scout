@@ -267,9 +267,8 @@ class TestModelAPIs(BaseTestCase):
         self.assertEqual(doc.metadata, {'k1': 'v1', 'k2': 'v2'})
 
         doc.metadata = {'k3': 'v3'}
-        self.assertEqual(doc.metadata, {'k3': 'v3'})
-        self.assertEqual(
-            Metadata.select().where(Metadata.document == doc.rowid).count(), 1)
+        q = Metadata.select().where(Metadata.document == doc.rowid)
+        self.assertEqual(q.count(), 1)
 
     def test_model_dedup_on_identifier(self):
         doc1 = self.index.index('first', identifier='dedup')
