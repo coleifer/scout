@@ -172,7 +172,8 @@ class Scout(object):
         return self.post('/documents/', post_data, attachments)
 
     def update_document(self, document_id, content=None, indexes=None,
-                        metadata=None, identifier=SENTINEL, attachments=None):
+                        metadata=SENTINEL, identifier=SENTINEL,
+                        attachments=None):
         data = {}
         if content is not None:
             data['content'] = content
@@ -180,7 +181,7 @@ class Scout(object):
             if not isinstance(indexes, (list, tuple)):
                 indexes = [indexes]
             data['indexes'] = indexes
-        if metadata is not None:
+        if metadata is not SENTINEL:
             data['metadata'] = metadata
         if identifier is not SENTINEL:
             data['identifier'] = identifier

@@ -401,9 +401,10 @@ class DocumentView(_FileProcessingView):
             logger.info('Updated document with id = %s', document.get_id())
 
         if 'metadata' in data:
-            del document.metadata
             if data['metadata']:
-                document.metadata = data['metadata']
+                document.metadata = data['metadata']  # Clears existing.
+            else:
+                del document.metadata
 
         if len(request.files):
             self.attach_files(document)
