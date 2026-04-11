@@ -2005,7 +2005,7 @@ class TestDocLookupHTTP(HTTPTestCase):
     def test_identifier_with_special_characters(self):
         # These identifiers are URL-safe and should round-trip via URL.
         safe_idents = ('has-dashes', 'dots.in.it', 'under_scores',
-                        'MixedCase123')
+                       'key:value', 'MixedCase123')
         for ident in safe_idents:
             doc_id = self._create('content', identifier=ident)['id']
             # Lookup by identifier through URL works.
@@ -2015,21 +2015,12 @@ class TestDocLookupHTTP(HTTPTestCase):
             self.assertLookupCount(0)
 
         # Identifiers with URL-unsafe characters (slashes, ?, %, spaces)
-        # are stored correctly but cannot be used in URL path lookups.
-        # Users must use the rowid to access these documents via URL.
+        # are not allowed.
         unsafe_idents = ('slashes/in/it', 'q?mark', 'pct%20enc',
                          'has spaces')
         for ident in unsafe_idents:
-            doc_id = self._create('content', identifier=ident)['id']
-            # Rowid lookup still works.
-            detail = self._get(doc_id)
-            self.assertEqual(detail['identifier'], ident)
-            self.assertLookupMaps(ident, doc_id)
-            # URL-based identifier lookup will fail for these — the URL
-            # path itself is mangled by Flask routing.  We don't assert
-            # that _get(ident) works, because it won't for slashes etc.
-            self._delete(doc_id)
-            self.assertLookupCount(0)
+            resp = self._create('content', identifier=ident)
+            self.assertTrue('error' in resp)
 
     def test_serialized_attachment_urls_resolve(self):
         """Attachment URLs from serialized output must actually work."""

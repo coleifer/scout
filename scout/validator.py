@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 
 from flask import request
@@ -10,6 +11,7 @@ from scout.models import Index
 
 json_load = lambda d: json.loads(d.decode('utf-8') if isinstance(d, bytes)
                                  else d)
+identifier_re = re.compile(r'^[a-zA-Z0-9_\-\.:]+$')
 
 
 class RequestValidator(object):
@@ -49,6 +51,12 @@ class RequestValidator(object):
         invalid_keys = all_keys_in_payload - all_keys
         if invalid_keys:
             error('Invalid keys: %s' % ', '.join(sorted(invalid_keys)))
+
+        if data.get('identifier'):
+            identifier = data.get('identifier')
+            if not identifier_re.match(identifier):
+                error('Identifier may only consist of the following: '
+                      'letters, numbers, "_", "-", ".", ":"')
 
         return data
 
