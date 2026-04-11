@@ -10,6 +10,7 @@ from playhouse.test_utils import assert_query_count
 
 from scout.client import Scout
 from scout.constants import SEARCH_BM25
+from scout.constants import SEARCH_NONE
 from scout.exceptions import InvalidRequestException
 from scout.exceptions import InvalidSearchException
 from scout.models import Attachment
@@ -76,221 +77,35 @@ class BaseTestCase(unittest.TestCase):
             IndexDocument])
 
 
-class TestSearch(BaseTestCase):
+class HTTPTestCase(BaseTestCase):
+    """Base for tests that exercise the Flask HTTP API."""
     def setUp(self):
-        super(TestSearch, self).setUp()
+        super().setUp()
         self.app = app.test_client()
-        self.index = Index.create(name='default')
-        Index.create(name='unused-1')
-        Index.create(name='unused-2')
         app.config['AUTHENTICATION'] = None
 
-    def populate(self):
-        k1 = ['k1-1', 'k1-2']
-        k2 = ['k2-1', 'k2-2']
-        k3 = ['k3-1', 'k3-2']
-        messages = [
-            'foo bar baz',
-            'nuggie zaizee',
-            'huey mickey',
-            'googie',
-        ]
-        with database.atomic():
-            for i in range(100):
-                self.index.index(
-                    content='testing %s' % i,
-                    test='true',
-                    k1=k1[i % 2],
-                    k2=k2[i % 2],
-                    k3=k3[i % 2],
-                    idx='%02d' % i,
-                    idx10=i % 10,
-                    name=messages[i % 4],
-                )
-
-    def search(self, index, query, page=1, **filters):
-        filters.setdefault('ranking', SEARCH_BM25)
-        params = urlencode(dict(filters, q=query, page=page))
-        response = self.app.get('/%s/?%s' % (index, params))
+    def post_json(self, url, data):
+        response = self.app.post(
+            url,
+            data=json.dumps(data),
+            headers={'content-type': 'application/json'})
         return json_load(response.data)
 
-    def test_model_search(self):
-        self.populate()
-        results = engine.search('testing 1*', index=self.index, k1='k1-1')
-        clean = [(doc.content, doc.metadata['k1']) for doc in results]
-        self.assertEqual(sorted(clean), [
-            ('testing 10', 'k1-1'),
-            ('testing 12', 'k1-1'),
-            ('testing 14', 'k1-1'),
-            ('testing 16', 'k1-1'),
-            ('testing 18', 'k1-1'),
-        ])
+    def put_json(self, url, data):
+        response = self.app.put(
+            url,
+            data=json.dumps(data),
+            headers={'content-type': 'application/json'})
+        return json_load(response.data)
 
-    def assertResults(self, filters, expected):
-        results = engine.search('testing', index=self.index, **filters)
-        results = sorted(results, key=lambda doc: doc.metadata['idx'])
-        indexes = [doc.metadata['idx'] for doc in results]
-        self.assertEqual(indexes, expected)
-        return results
+    def get_json(self, url):
+        response = self.app.get(url)
+        return json_load(response.data)
 
-    def test_model_filtering(self):
-        self.populate()
-        self.assertResults(
-            {'idx__ge': 95, 'idx10__in': '5,8,9,1, 3'},
-            ['95', '98', '99'])
 
-        results = self.assertResults(
-            {'name__contains': 'gie', 'idx10__ge': 6, 'idx__lt': 30},
-            ['07', '09', '17', '19', '27', '29'])
-
-        names = [doc.metadata['name'] for doc in results]
-        self.assertEqual(names, [
-            'googie',
-            'nuggie zaizee',
-            'nuggie zaizee',
-            'googie',
-            'googie',
-            'nuggie zaizee'])
-
-        self.assertResults(
-            {'name__regex': 'gie$', 'idx__gt': 90},
-            ['91', '95', '99'])
-
-    def test_filter_or(self):
-        self.populate()
-        self.assertResults(
-            {'idx': ['03', '05', '99']},
-            ['03', '05', '99'])
-
-        crazy = {
-            'idx10': ['1', '4', '7'],
-            'idx__lt': '30',
-            'name': ['huey mickey', 'nuggie zaizee']}
-        results = self.assertResults(crazy, ['01', '14', '17', '21'])
-        names = [doc.metadata['name'] for doc in results]
-        self.assertEqual(names, ['nuggie zaizee', 'huey mickey',
-                                 'nuggie zaizee', 'nuggie zaizee'])
-
-    def test_docs_example(self):
-        data = [
-            ('huey', ('2010-06-01', 'Lawrence', 'KS')),
-            ('mickey', ('2008-04-01', 'Lawrence', 'KS')),
-            ('zaizee', ('2012-05-01', 'Lawrence', 'KS')),
-            ('dodie', ('2014-09-01', 'Lawrence', 'KS')),
-            ('harley', ('2008-04-20', 'Topeka', 'KS')),
-            ('oreo', ('2009-01-01', 'Topeka', 'KS')),
-            ('boo', ('2012-01-01', 'Kansas City', 'MO')),
-            ('gray', ('2012-02-01', 'Kansas City', 'MO')),
-            ('mackie', ('2007-02-01', 'Pittsburg', 'KS')),
-        ]
-        for name, (dob, city, state) in data:
-            self.index.index(content=name, dob=dob, city=city, state=state)
-
-        docs = engine.search('*', index=self.index, dob__gt='2009-01-01')
-        self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
-            '2010-06-01',
-            '2012-01-01',
-            '2012-02-01',
-            '2012-05-01',
-            '2014-09-01',
-        ])
-
-        docs = engine.search(
-            '*', index=self.index, dob__ge='2008-01-01', dob__lt='2009-01-01')
-        self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
-            '2008-04-01',
-            '2008-04-20',
-        ])
-
-        docs = engine.search('*', index=self.index, city__in='Topeka,Lawrence',
-                             state='KS')
-        self.assertEqual(sorted([doc.content for doc in docs]), [
-            'dodie',
-            'harley',
-            'huey',
-            'mickey',
-            'oreo',
-            'zaizee',
-        ])
-
-    def test_invalid_op(self):
-        self.assertRaises(
-            InvalidRequestException,
-            lambda: engine.search('testing', index=self.index,
-                                  name__xx='missing'))
-
-    def test_search(self):
-        self.populate()
-        results = self.search('default', 'testing', k1='k1-1')
-        self.assertEqual(results['pages'], 5)
-        self.assertEqual(results['page'], 1)
-        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
-                         ['k1-1'] * 10)
-
-        results = self.search(
-            'default',
-            'testing',
-            k1='k1-1',
-            k2='k2-1',
-            k3='k3-1')
-        self.assertEqual(results['page'], 1)
-        self.assertEqual(results['pages'], 5)
-        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
-                         ['k1-1'] * 10)
-
-    def test_search_queries(self):
-        self.populate()
-        with assert_query_count(9):
-            results = self.search(
-                'default',
-                'testing',
-                k1='k1-1',
-                k2='k2-1',
-                k3='k3-1')
-
-        self.assertEqual(results['page'], 1)
-        self.assertEqual(results['pages'], 5)
-        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
-                         ['k1-1'] * 10)
-
-    def test_search_with_ranking_not_treated_as_metadata(self):
-        self.populate()
-        # 'ranking' is not passed into _build_filter_expression, so the results
-        # work as expected.
-        results = list(engine.search(
-            'testing', index=self.index, ranking='bm25', k1='k1-1', page=1))
-        self.assertTrue(len(results) > 0)
-
-    def test_apply_sorting_string_ordering(self):
-        self.populate()
-        # Should not raise or silently ignore the ordering.
-        results = list(engine.search(
-            'testing', index=self.index, ordering='-id'))
-        ids = [doc.rowid for doc in results]
-        self.assertEqual(ids, sorted(ids, reverse=True))
-
-        results2 = list(engine.search(
-            'testing', index=self.index, ordering='id'))
-        ids2 = [doc.rowid for doc in results2]
-        self.assertEqual(ids2, sorted(ids2))
-
-    def test_metadata_filter_like_exprs(self):
-        self.populate()
-        results = list(engine.search(
-            'testing', index=self.index, name__contains='gie'))
-        names = sorted(set(doc.metadata['name'] for doc in results))
-        self.assertEqual(names, ['googie', 'nuggie zaizee'])
-
-        results = list(engine.search(
-            'testing', index=self.index, name__startswith='nug'))
-        names = sorted(set(doc.metadata['name'] for doc in results))
-        self.assertEqual(names, ['nuggie zaizee'])
-
-        results = list(engine.search(
-            'testing', index=self.index, name__endswith='key'))
-        names = sorted(set(doc.metadata['name'] for doc in results))
-        self.assertEqual(names, ['huey mickey'])
-
+#
+# Layer 1: Model / Python-level APIs
+#
 
 class TestModelAPIs(BaseTestCase):
     def setUp(self):
@@ -414,8 +229,15 @@ class TestModelAPIs(BaseTestCase):
         assertSearch('faith thing', [4, 2], SEARCH_BM25)  # Same.
         assertSearch('things', [4, 2], SEARCH_BM25)  # Same result.
         assertSearch('blah', [], SEARCH_BM25)  # No results, works.
-        self.assertRaises(
-            InvalidSearchException, engine.search, '', SEARCH_BM25)
+        self.assertRaises(InvalidSearchException, engine.search, '',
+                          SEARCH_BM25)
+
+        assertSearch('believe', [0, 3], SEARCH_NONE)
+        assertSearch('faith thing', [2, 4], SEARCH_NONE)
+        assertSearch('things', [2, 4], SEARCH_NONE)
+        assertSearch('blah', [], SEARCH_NONE)
+        self.assertRaises(InvalidSearchException, engine.search, '',
+                          SEARCH_NONE)
 
     def test_blob_lifecycle(self):
         idx = Index.create(name='idx')
@@ -427,31 +249,269 @@ class TestModelAPIs(BaseTestCase):
         doc2.attach('b.txt', b'shared data')
         self.assertEqual(BlobData.select().count(), 1)
 
-        # Detach from doc1 -- blob still referenced by doc2.
+        # Detach from doc1, blob still referenced by doc2.
         doc1.detach('a.txt')
         self.assertEqual(Attachment.select().count(), 1)
         self.assertEqual(BlobData.select().count(), 1)
 
-        # Detach from doc2 -- blob orphaned, cleaned up.
+        # Detach from doc2, blob orphaned, cleaned up.
         doc2.detach('b.txt')
         self.assertEqual(Attachment.select().count(), 0)
         self.assertEqual(BlobData.select().count(), 0)
 
 
-class TestSearchViews(BaseTestCase):
+class TestModelSearch(BaseTestCase):
+    """Model-level search engine tests with a large metadata-rich dataset."""
     def setUp(self):
-        super(TestSearchViews, self).setUp()
-        self.app = app.test_client()
-        app.config['AUTHENTICATION'] = None
+        super().setUp()
+        self.index = Index.create(name='default')
 
-    def post_json(self, url, data, parse_response=True):
-        response = self.app.post(
-            url,
-            data=json.dumps(data),
-            headers={'content-type': 'application/json'})
-        if parse_response:
-            return json_load(response.data)
-        return response
+    def populate(self):
+        k1 = ['k1-1', 'k1-2']
+        k2 = ['k2-1', 'k2-2']
+        k3 = ['k3-1', 'k3-2']
+        messages = [
+            'foo bar baz',
+            'nuggie zaizee',
+            'huey mickey',
+            'googie',
+        ]
+        with database.atomic():
+            for i in range(100):
+                self.index.index(
+                    content='testing %s' % i,
+                    test='true',
+                    k1=k1[i % 2],
+                    k2=k2[i % 2],
+                    k3=k3[i % 2],
+                    idx='%02d' % i,
+                    idx10=i % 10,
+                    name=messages[i % 4],
+                )
+
+    def assertResults(self, filters, expected):
+        results = engine.search('testing', index=self.index, **filters)
+        results = sorted(results, key=lambda doc: doc.metadata['idx'])
+        indexes = [doc.metadata['idx'] for doc in results]
+        self.assertEqual(indexes, expected)
+        return results
+
+    def test_model_search(self):
+        self.populate()
+        results = engine.search('testing 1*', index=self.index, k1='k1-1')
+        clean = [(doc.content, doc.metadata['k1']) for doc in results]
+        self.assertEqual(sorted(clean), [
+            ('testing 10', 'k1-1'),
+            ('testing 12', 'k1-1'),
+            ('testing 14', 'k1-1'),
+            ('testing 16', 'k1-1'),
+            ('testing 18', 'k1-1'),
+        ])
+
+    def test_model_filtering(self):
+        self.populate()
+        self.assertResults(
+            {'idx__ge': 95, 'idx10__in': '5,8,9,1, 3'},
+            ['95', '98', '99'])
+
+        results = self.assertResults(
+            {'name__contains': 'gie', 'idx10__ge': 6, 'idx__lt': 30},
+            ['07', '09', '17', '19', '27', '29'])
+
+        names = [doc.metadata['name'] for doc in results]
+        self.assertEqual(names, [
+            'googie',
+            'nuggie zaizee',
+            'nuggie zaizee',
+            'googie',
+            'googie',
+            'nuggie zaizee'])
+
+        self.assertResults(
+            {'name__regex': 'gie$', 'idx__gt': 90},
+            ['91', '95', '99'])
+
+    def test_filter_or(self):
+        self.populate()
+        self.assertResults(
+            {'idx': ['03', '05', '99']},
+            ['03', '05', '99'])
+
+        crazy = {
+            'idx10': ['1', '4', '7'],
+            'idx__lt': '30',
+            'name': ['huey mickey', 'nuggie zaizee']}
+        results = self.assertResults(crazy, ['01', '14', '17', '21'])
+        names = [doc.metadata['name'] for doc in results]
+        self.assertEqual(names, ['nuggie zaizee', 'huey mickey',
+                                 'nuggie zaizee', 'nuggie zaizee'])
+
+    def test_docs_example(self):
+        data = [
+            ('huey', ('2010-06-01', 'Lawrence', 'KS')),
+            ('mickey', ('2008-04-01', 'Lawrence', 'KS')),
+            ('zaizee', ('2012-05-01', 'Lawrence', 'KS')),
+            ('dodie', ('2014-09-01', 'Lawrence', 'KS')),
+            ('harley', ('2008-04-20', 'Topeka', 'KS')),
+            ('oreo', ('2009-01-01', 'Topeka', 'KS')),
+            ('boo', ('2012-01-01', 'Kansas City', 'MO')),
+            ('gray', ('2012-02-01', 'Kansas City', 'MO')),
+            ('mackie', ('2007-02-01', 'Pittsburg', 'KS')),
+        ]
+        for name, (dob, city, state) in data:
+            self.index.index(content=name, dob=dob, city=city, state=state)
+
+        docs = engine.search('*', index=self.index, dob__gt='2009-01-01')
+        self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
+            '2010-06-01',
+            '2012-01-01',
+            '2012-02-01',
+            '2012-05-01',
+            '2014-09-01',
+        ])
+
+        docs = engine.search(
+            '*', index=self.index, dob__ge='2008-01-01', dob__lt='2009-01-01')
+        self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
+            '2008-04-01',
+            '2008-04-20',
+        ])
+
+        docs = engine.search('*', index=self.index, city__in='Topeka,Lawrence',
+                             state='KS')
+        self.assertEqual(sorted([doc.content for doc in docs]), [
+            'dodie',
+            'harley',
+            'huey',
+            'mickey',
+            'oreo',
+            'zaizee',
+        ])
+
+    def test_invalid_op(self):
+        with self.assertRaises(InvalidRequestException):
+            engine.search('testing', index=self.index, name__xx='missing')
+
+    def test_search_with_ranking_not_treated_as_metadata(self):
+        self.populate()
+        results = list(engine.search('testing', index=self.index,
+                                     ranking='bm25', k1='k1-1', page=1))
+        self.assertTrue(len(results) > 0)
+        self.assertTrue(results[0].score <= 0)
+
+    def test_apply_sorting(self):
+        self.populate()
+        results = list(engine.search(
+            'testing', index=self.index, ordering='-id'))
+        ids = [doc.rowid for doc in results]
+        self.assertEqual(ids, sorted(ids, reverse=True))
+
+        results2 = list(engine.search(
+            'testing', index=self.index, ordering='id'))
+        ids2 = [doc.rowid for doc in results2]
+        self.assertEqual(ids2, sorted(ids2))
+
+    def test_metadata_filter_like_exprs(self):
+        self.populate()
+        results = list(engine.search(
+            'testing', index=self.index, name__contains='gie'))
+        names = sorted(set(doc.metadata['name'] for doc in results))
+        self.assertEqual(names, ['googie', 'nuggie zaizee'])
+
+        results = list(engine.search(
+            'testing', index=self.index, name__startswith='nug'))
+        names = sorted(set(doc.metadata['name'] for doc in results))
+        self.assertEqual(names, ['nuggie zaizee'])
+
+        results = list(engine.search(
+            'testing', index=self.index, name__endswith='key'))
+        names = sorted(set(doc.metadata['name'] for doc in results))
+        self.assertEqual(names, ['huey mickey'])
+
+
+class TestDocLookupModelLevel(BaseTestCase):
+    def setUp(self):
+        super(TestDocLookupModelLevel, self).setUp()
+        self.index = Index.create(name='idx')
+
+    def test_create_and_get(self):
+        # With identifier -- lookup created, resolvable by identifier or rowid.
+        doc = self.index.index(content='hello world', identifier='my-doc')
+        self.assertEqual(DocLookup.select().count(), 1)
+        lookup = DocLookup.get(DocLookup.identifier == 'my-doc')
+        self.assertEqual(lookup.rowid, doc.rowid)
+
+        found = DocLookup.get_document('my-doc')
+        self.assertEqual(found.rowid, doc.rowid)
+        self.assertEqual(found.content, 'hello world')
+
+        found = DocLookup.get_document(doc.rowid)
+        self.assertEqual(found.content, 'hello world')
+
+        found = DocLookup.get_document(str(doc.rowid))
+        self.assertEqual(found.content, 'hello world')
+
+        # Without identifier -- no lookup created.
+        self.index.index(content='no ident')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+    def test_update_and_clear_identifier(self):
+        doc = self.index.index(content='hello', identifier='old-id')
+
+        # Update identifier.
+        self.index.index(content='hello updated', document=doc,
+                         identifier='new-id')
+        self.assertEqual(DocLookup.select().count(), 1)
+        self.assertEqual(DocLookup.get().identifier, 'new-id')
+        self.assertRaises(Document.DoesNotExist,
+                          DocLookup.get_document, 'old-id')
+        self.assertEqual(DocLookup.get_document('new-id').rowid, doc.rowid)
+
+        # Clear identifier.
+        self.index.index(content='hello cleared', document=doc,
+                         identifier=None)
+        self.assertEqual(DocLookup.select().count(), 0)
+        self.assertRaises(Document.DoesNotExist,
+                          DocLookup.get_document, 'new-id')
+
+    def test_reuse_identifier_on_new_document(self):
+        doc1 = self.index.index(content='first', identifier='reused')
+        doc2 = self.index.index(content='second', identifier='reused')
+        self.assertEqual(DocLookup.select().count(), 1)
+        found = DocLookup.get_document('reused')
+        self.assertEqual(found.rowid, doc2.rowid)
+        self.assertNotEqual(found.rowid, doc1.rowid)
+
+    def test_multiple_documents_distinct_identifiers(self):
+        doc_a = self.index.index(content='aaa', identifier='id-a')
+        doc_b = self.index.index(content='bbb', identifier='id-b')
+        self.index.index(content='ccc')
+
+        self.assertEqual(DocLookup.select().count(), 2)
+        self.assertEqual(DocLookup.get_document('id-a').rowid, doc_a.rowid)
+        self.assertEqual(DocLookup.get_document('id-b').rowid, doc_b.rowid)
+        self.assertRaises(Document.DoesNotExist,
+                          DocLookup.get_document, 'id-c')
+
+    def test_swap_identifiers(self):
+        doc_a = self.index.index(content='aaa', identifier='id-a')
+        doc_b = self.index.index(content='bbb', identifier='id-b')
+
+        # Clear a, assign a's old id to b, assign b's old id to a.
+        self.index.index(content='aaa', document=doc_a, identifier=None)
+        self.index.index(content='bbb', document=doc_b, identifier='id-a')
+        self.index.index(content='aaa', document=doc_a, identifier='id-b')
+
+        self.assertEqual(DocLookup.get_document('id-a').rowid, doc_b.rowid)
+        self.assertEqual(DocLookup.get_document('id-b').rowid, doc_a.rowid)
+
+
+#
+# Layer 2: HTTP APIs
+#
+
+class TestHTTPViews(HTTPTestCase):
+    """Index and document CRUD via the HTTP API."""
 
     def test_create_index(self):
         data = self.post_json('/', {'name': 'TestIndex'})
@@ -476,7 +536,7 @@ class TestSearchViews(BaseTestCase):
 
         response = self.app.post(
             '/',
-            data='not json',
+            data='{"not" "json}',
             headers={'content-type': 'application/json'})
         data = json_load(response.data)
         self.assertEqual(
@@ -484,14 +544,14 @@ class TestSearchViews(BaseTestCase):
             {'error': 'Unable to parse JSON data from request.'})
 
     def test_index_list(self):
-        for i in range(3):
-            Index.create(name='i%s' % i)
+        indexes = [Index.create(name='i%s' % i) for i in range(3)]
+        indexes[1].index('test doc1')
+        indexes[1].index('test doc2')
 
-        response = self.app.get('/')
-        data = json_load(response.data)
+        data = self.get_json('/')
         self.assertEqual(data['indexes'], [
             {'document_count': 0, 'documents': '/i0/', 'id': 1, 'name': 'i0'},
-            {'document_count': 0, 'documents': '/i1/', 'id': 2, 'name': 'i1'},
+            {'document_count': 2, 'documents': '/i1/', 'id': 2, 'name': 'i1'},
             {'document_count': 0, 'documents': '/i2/', 'id': 3, 'name': 'i2'},
         ])
 
@@ -508,8 +568,7 @@ class TestSearchViews(BaseTestCase):
         b_doc = idx_b.index('both-doc')
         idx_a.index(b_doc.content, b_doc)
 
-        response = self.app.get('/idx-a/')
-        data = json_load(response.data)
+        data = self.get_json('/idx-a/')
         self.assertEqual(data['page'], 1)
         self.assertEqual(data['pages'], 2)
         self.assertEqual(len(data['documents']), 10)
@@ -522,14 +581,12 @@ class TestSearchViews(BaseTestCase):
             'indexes': ['idx-a'],
             'metadata': {'foo': 'bar-0'}})
 
-        response = self.app.get('/idx-a/?page=2')
-        data = json_load(response.data)
+        data = self.get_json('/idx-a/?page=2')
         self.assertEqual(data['page'], 2)
         self.assertEqual(data['pages'], 2)
         self.assertEqual(len(data['documents']), 2)
 
-        response = self.app.get('/idx-b/')
-        data = json_load(response.data)
+        data = self.get_json('/idx-b/')
         self.assertEqual(data['page'], 1)
         self.assertEqual(data['pages'], 1)
         self.assertEqual(len(data['documents']), 1)
@@ -592,86 +649,6 @@ class TestSearchViews(BaseTestCase):
             'indexes': ['idx-a', 'idx-b'],
             'metadata': {}})
 
-    def test_index_document_attachments(self):
-        idx_a = Index.create(name='idx-a')
-        json_data = json.dumps({
-            'content': 'doc a',
-            'index': 'idx-a',
-            'metadata': {'k1': 'v1-a', 'k2': 'v2-a'},
-        })
-        response = self.app.post('/documents/', data={
-            'data': json_data,
-            'file_0': (BytesIO(b'testfile1'), 'test1.txt'),
-            'file_1': (BytesIO(b'testfile2'), 'test2.jpg')})
-
-        a1 = Attachment.get(Attachment.filename == 'test1.txt')
-        a2 = Attachment.get(Attachment.filename == 'test2.jpg')
-        a1_data = {
-            'data': '/documents/1/attachments/test1.txt/download/',
-            'mimetype': 'text/plain',
-            'timestamp': str(a1.timestamp),
-            'filename': 'test1.txt'}
-        a2_data = {
-            'data': '/documents/1/attachments/test2.jpg/download/',
-            'mimetype': 'image/jpeg',
-            'timestamp': str(a2.timestamp),
-            'filename': 'test2.jpg'}
-
-        resp_data = json_load(response.data)
-        self.assertEqual(resp_data, {
-            'attachments': [a1_data, a2_data],
-            'content': 'doc a',
-            'id': 1,
-            'identifier': None,
-            'indexes': ['idx-a'],
-            'metadata': {'k1': 'v1-a', 'k2': 'v2-a'}})
-
-        Attachment.update(timestamp='2016-02-01 01:02:03').execute()
-
-        with assert_query_count(3):
-            resp = self.app.get('/documents/1/attachments/')
-
-        self.assertEqual(json_load(resp.data), {
-            'ordering': [],
-            'pages': 1,
-            'page': 1,
-            'next_url': None,
-            'previous_url': None,
-            'attachments': [
-                {
-                    'mimetype': 'text/plain',
-                    'timestamp': '2016-02-01 01:02:03',
-                    'data_length': 9,
-                    'filename': 'test1.txt',
-                    'document': '/documents/1/',
-                    'data': '/documents/1/attachments/test1.txt/download/',
-                },
-                {
-                    'mimetype': 'image/jpeg',
-                    'timestamp': '2016-02-01 01:02:03',
-                    'data_length': 9,
-                    'filename': 'test2.jpg',
-                    'document': '/documents/1/',
-                    'data': '/documents/1/attachments/test2.jpg/download/',
-                },
-            ],
-        })
-
-    def test_document_detail_query_count_with_attachments(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('test doc')
-        for i in range(10):
-            doc.attach('a%s.txt' % i, b'aaa')
-
-        with assert_query_count(4):
-            response = self.app.get('/documents/%s/' % doc.get_id())
-
-        data = json_load(response.data)
-        self.assertEqual(len(data['attachments']), 10)
-
-        with assert_query_count(8):
-            self.app.get('/documents/')
-
     def test_index_document_validation(self):
         idx = Index.create(name='idx')
         response = self.post_json('/documents/', {'content': 'foo'})
@@ -715,8 +692,7 @@ class TestSearchViews(BaseTestCase):
         doc = idx.index('test doc', foo='bar')
         alt_doc = idx.index('alt doc')
 
-        response = self.app.get('/documents/%s/' % doc.rowid)
-        data = json_load(response.data)
+        data = self.get_json('/documents/%s/' % doc.rowid)
         self.assertEqual(data, {
             'attachments': [],
             'content': 'test doc',
@@ -807,47 +783,6 @@ class TestSearchViews(BaseTestCase):
         self.assertEqual(response['content'], 'updated via create')
         self.assertEqual(response['metadata'], {'k': 'new-v'})
 
-    def test_document_detail_update_attachments(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('test doc', foo='bar', nug='baze')
-        doc.attach('foo.jpg', 'empty')
-        url = '/documents/%s/' % doc.rowid
-
-        json_data = json.dumps({'content': 'test doc-edited'})
-        response = self.app.post(url, data={
-            'data': json_data,
-            'file_0': (BytesIO(b'xx'), 'foo.jpg'),
-            'file_1': (BytesIO(b'yy'), 'foo2.jpg')})
-
-        resp_data = json_load(response.data)
-        a1 = Attachment.get(Attachment.filename == 'foo.jpg')
-        a2 = Attachment.get(Attachment.filename == 'foo2.jpg')
-        a1_data = {
-            'mimetype': 'image/jpeg',
-            'data': '/documents/%s/attachments/foo.jpg/download/' % doc.rowid,
-            'timestamp': str(a1.timestamp),
-            'filename': 'foo.jpg'}
-        a2_data = {
-            'mimetype': 'image/jpeg',
-            'data': '/documents/%s/attachments/foo2.jpg/download/' % doc.rowid,
-            'timestamp': str(a2.timestamp),
-            'filename': 'foo2.jpg'}
-        self.assertEqual(resp_data, {
-            'attachments': [a1_data, a2_data],
-            'content': 'test doc-edited',
-            'id': 1,
-            'identifier': None,
-            'indexes': ['idx'],
-            'metadata': {'foo': 'bar', 'nug': 'baze'}})
-
-        self.assertEqual(Attachment.select().count(), 2)
-        self.assertEqual(BlobData.select().count(), 3)
-
-        # Existing file updated, new file added.
-        foo, foo2 = Attachment.select().order_by(Attachment.filename)
-        self.assertEqual(foo.blob.data, b'xx')
-        self.assertEqual(foo2.blob.data, b'yy')
-
     def test_document_detail_delete(self):
         idx = Index.create(name='idx')
         alt_idx = Index.create(name='alt-idx')
@@ -901,6 +836,130 @@ class TestSearchViews(BaseTestCase):
         # Only shared blob survives (referenced by d2).
         self.assertEqual(BlobData.select().count(), 1)
 
+
+class TestHTTPAttachments(HTTPTestCase):
+    """Attachment CRUD and global attachment views via the HTTP API."""
+
+    def test_index_document_attachments(self):
+        idx_a = Index.create(name='idx-a')
+        json_data = json.dumps({
+            'content': 'doc a',
+            'index': 'idx-a',
+            'metadata': {'k1': 'v1-a', 'k2': 'v2-a'},
+        })
+        response = self.app.post('/documents/', data={
+            'data': json_data,
+            'file_0': (BytesIO(b'testfile1'), 'test1.txt'),
+            'file_1': (BytesIO(b'testfile2'), 'test2.jpg')})
+
+        a1 = Attachment.get(Attachment.filename == 'test1.txt')
+        a2 = Attachment.get(Attachment.filename == 'test2.jpg')
+        a1_data = {
+            'data': '/documents/1/attachments/test1.txt/download/',
+            'mimetype': 'text/plain',
+            'timestamp': str(a1.timestamp),
+            'filename': 'test1.txt'}
+        a2_data = {
+            'data': '/documents/1/attachments/test2.jpg/download/',
+            'mimetype': 'image/jpeg',
+            'timestamp': str(a2.timestamp),
+            'filename': 'test2.jpg'}
+
+        resp_data = json_load(response.data)
+        self.assertEqual(resp_data, {
+            'attachments': [a1_data, a2_data],
+            'content': 'doc a',
+            'id': 1,
+            'identifier': None,
+            'indexes': ['idx-a'],
+            'metadata': {'k1': 'v1-a', 'k2': 'v2-a'}})
+
+        Attachment.update(timestamp='2016-02-01 01:02:03').execute()
+
+        with assert_query_count(3):
+            data = self.get_json('/documents/1/attachments/')
+
+        self.assertEqual(data, {
+            'ordering': [],
+            'pages': 1,
+            'page': 1,
+            'next_url': None,
+            'previous_url': None,
+            'attachments': [
+                {
+                    'mimetype': 'text/plain',
+                    'timestamp': '2016-02-01 01:02:03',
+                    'data_length': 9,
+                    'filename': 'test1.txt',
+                    'document': '/documents/1/',
+                    'data': '/documents/1/attachments/test1.txt/download/',
+                },
+                {
+                    'mimetype': 'image/jpeg',
+                    'timestamp': '2016-02-01 01:02:03',
+                    'data_length': 9,
+                    'filename': 'test2.jpg',
+                    'document': '/documents/1/',
+                    'data': '/documents/1/attachments/test2.jpg/download/',
+                },
+            ],
+        })
+
+    def test_document_detail_query_count_with_attachments(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('test doc')
+        for i in range(10):
+            doc.attach('a%s.txt' % i, b'aaa')
+
+        with assert_query_count(4):
+            data = self.get_json('/documents/%s/' % doc.get_id())
+
+        self.assertEqual(len(data['attachments']), 10)
+
+        with assert_query_count(8):
+            self.get_json('/documents/')
+
+    def test_document_detail_update_attachments(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('test doc', foo='bar', nug='baze')
+        doc.attach('foo.jpg', 'empty')
+        url = '/documents/%s/' % doc.rowid
+
+        json_data = json.dumps({'content': 'test doc-edited'})
+        response = self.app.post(url, data={
+            'data': json_data,
+            'file_0': (BytesIO(b'xx'), 'foo.jpg'),
+            'file_1': (BytesIO(b'yy'), 'foo2.jpg')})
+
+        resp_data = json_load(response.data)
+        a1 = Attachment.get(Attachment.filename == 'foo.jpg')
+        a2 = Attachment.get(Attachment.filename == 'foo2.jpg')
+        a1_data = {
+            'mimetype': 'image/jpeg',
+            'data': '/documents/%s/attachments/foo.jpg/download/' % doc.rowid,
+            'timestamp': str(a1.timestamp),
+            'filename': 'foo.jpg'}
+        a2_data = {
+            'mimetype': 'image/jpeg',
+            'data': '/documents/%s/attachments/foo2.jpg/download/' % doc.rowid,
+            'timestamp': str(a2.timestamp),
+            'filename': 'foo2.jpg'}
+        self.assertEqual(resp_data, {
+            'attachments': [a1_data, a2_data],
+            'content': 'test doc-edited',
+            'id': 1,
+            'identifier': None,
+            'indexes': ['idx'],
+            'metadata': {'foo': 'bar', 'nug': 'baze'}})
+
+        self.assertEqual(Attachment.select().count(), 2)
+        self.assertEqual(BlobData.select().count(), 3)
+
+        # Existing file updated, new file added.
+        foo, foo2 = Attachment.select().order_by(Attachment.filename)
+        self.assertEqual(foo.blob.data, b'xx')
+        self.assertEqual(foo2.blob.data, b'yy')
+
     def test_attachment_views(self):
         idx = Index.create(name='idx')
         doc = idx.index('doc 1')
@@ -908,9 +967,8 @@ class TestSearchViews(BaseTestCase):
         doc.attach('bar.png', 'x')
         Attachment.update(timestamp='2016-01-02 03:04:05').execute()
 
-        resp = self.app.get('/documents/1/attachments/')
-        resp_data = json_load(resp.data)
-        self.assertEqual(resp_data['attachments'], [
+        data = self.get_json('/documents/1/attachments/')
+        self.assertEqual(data['attachments'], [
             {
                 'mimetype': 'image/png',
                 'timestamp': '2016-01-02 03:04:05',
@@ -929,9 +987,8 @@ class TestSearchViews(BaseTestCase):
             },
         ])
 
-        resp = self.app.get('/documents/1/attachments/foo.jpg/')
-        resp_data = json_load(resp.data)
-        self.assertEqual(resp_data, {
+        data = self.get_json('/documents/1/attachments/foo.jpg/')
+        self.assertEqual(data, {
             'mimetype': 'image/jpeg',
             'timestamp': '2016-01-02 03:04:05',
             'data_length': 1,
@@ -952,11 +1009,139 @@ class TestSearchViews(BaseTestCase):
         resp = self.app.get('/documents/1/attachments/bar.png/download/')
         self.assertEqual(resp.data, b'zz')
 
+    def test_global_attachments(self):
+        idx = Index.create(name='idx')
+        idx2 = Index.create(name='idx2')
+
+        # Empty state.
+        data = self.get_json('/attachments/')
+        self.assertEqual(data['attachments'], [])
+        self.assertEqual(data['page'], 1)
+        self.assertEqual(data['pages'], 0)
+
+        doc = idx.index('doc')
+        doc.attach('photo.jpg', b'jpeg')
+        doc.attach('notes.txt', b'text')
+        doc.attach('logo.png', b'png')
+
+        doc2 = idx2.index('doc')
+        doc2.attach('d2.jpg', b'jpeg2')
+        doc2.attach('notes.txt', b'text2')
+
+        # All attachments.
+        data = self.get_json('/attachments/')
+        self.assertEqual(len(data['attachments']), 5)
+
+        # Filter by mimetype.
+        data = self.get_json('/attachments/?mimetype=image/jpeg')
+        self.assertEqual(
+            sorted(a['filename'] for a in data['attachments']),
+            ['d2.jpg', 'photo.jpg'])
+
+        # Filter by filename.
+        data = self.get_json('/attachments/?filename=notes.txt')
+        self.assertEqual(len(data['attachments']), 2)
+
+        # Filter by index.
+        data = self.get_json('/attachments/?index=idx2')
+        self.assertEqual(
+            sorted(a['filename'] for a in data['attachments']),
+            ['d2.jpg', 'notes.txt'])
+
+        data = self.get_json('/attachments/?index=idx&index=idx2')
+        self.assertEqual(len(data['attachments']), 5)
+
+        data = self.get_json('/attachments/?index=nope')
+        self.assertEqual(len(data['attachments']), 0)
+
+        # Ordering.
+        data = self.get_json('/attachments/?index=idx&ordering=-filename')
+        filenames = [a['filename'] for a in data['attachments']]
+        self.assertEqual(filenames, ['photo.jpg', 'notes.txt', 'logo.png'])
+
+        # Auth required.
+        app.config['AUTHENTICATION'] = 'secret'
+        try:
+            self.assertEqual(self.app.get('/attachments/').status_code, 401)
+            self.assertEqual(
+                self.app.get('/attachments/?key=secret').status_code, 200)
+        finally:
+            app.config['AUTHENTICATION'] = None
+
+
+class TestHTTPSearch(HTTPTestCase):
+    """Search, filtering, pagination, auth, and query performance via HTTP."""
+
     def search(self, index, query, page=1, **filters):
         filters.setdefault('ranking', SEARCH_BM25)
         params = urlencode(dict(filters, q=query, page=page))
-        response = self.app.get('/%s/?%s' % (index, params))
-        return json_load(response.data)
+        return self.get_json('/%s/?%s' % (index, params))
+
+    def populate(self, index):
+        """Populate an index with 100 documents with metadata for filtering."""
+        k1 = ['k1-1', 'k1-2']
+        k2 = ['k2-1', 'k2-2']
+        k3 = ['k3-1', 'k3-2']
+        messages = [
+            'foo bar baz',
+            'nuggie zaizee',
+            'huey mickey',
+            'googie',
+        ]
+        with database.atomic():
+            for i in range(100):
+                index.index(
+                    content='testing %s' % i,
+                    test='true',
+                    k1=k1[i % 2],
+                    k2=k2[i % 2],
+                    k3=k3[i % 2],
+                    idx='%02d' % i,
+                    idx10=i % 10,
+                    name=messages[i % 4],
+                )
+
+    def test_search_metadata_pagination(self):
+        idx = Index.create(name='default')
+        Index.create(name='unused-1')
+        Index.create(name='unused-2')
+        self.populate(idx)
+
+        results = self.search('default', 'testing', k1='k1-1')
+        self.assertEqual(results['pages'], 5)
+        self.assertEqual(results['page'], 1)
+        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
+                         ['k1-1'] * 10)
+
+        results = self.search(
+            'default',
+            'testing',
+            k1='k1-1',
+            k2='k2-1',
+            k3='k3-1')
+        self.assertEqual(results['page'], 1)
+        self.assertEqual(results['pages'], 5)
+        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
+                         ['k1-1'] * 10)
+
+    def test_search_sql_query_count(self):
+        idx = Index.create(name='default')
+        Index.create(name='unused-1')
+        Index.create(name='unused-2')
+        self.populate(idx)
+
+        with assert_query_count(9):
+            results = self.search(
+                'default',
+                'testing',
+                k1='k1-1',
+                k2='k2-1',
+                k3='k3-1')
+
+        self.assertEqual(results['page'], 1)
+        self.assertEqual(results['pages'], 5)
+        self.assertEqual([d['metadata']['k1'] for d in results['documents']],
+                         ['k1-1'] * 10)
 
     def test_search(self):
         idx = Index.create(name='idx')
@@ -1064,16 +1249,16 @@ class TestSearchViews(BaseTestCase):
                     self.search(idx, query, foo='bar')
 
         with assert_query_count(9):
-            data = self.app.get('/idx-a/').data
+            self.get_json('/idx-a/')
 
         with assert_query_count(8):
-            self.app.get('/documents/')
+            self.get_json('/documents/')
 
         for i in range(10):
             Index.create(name='idx-%s' % i)
 
         with assert_query_count(2):
-            self.app.get('/')
+            self.get_json('/')
 
     def test_authentication(self):
         Index.create(name='idx')
@@ -1113,18 +1298,18 @@ class TestSearchViews(BaseTestCase):
         shared = idx_a.index('shared doc')
         idx_b.add_to_index(shared)
 
-        response = self.app.get('/documents/')
-        self.assertEqual(json_load(response.data)['document_count'], 9)
+        data = self.get_json('/documents/')
+        self.assertEqual(data['document_count'], 9)
 
-        response = self.app.get('/documents/?index=idx-a')
-        self.assertEqual(json_load(response.data)['document_count'], 6)
+        data = self.get_json('/documents/?index=idx-a')
+        self.assertEqual(data['document_count'], 6)
 
-        response = self.app.get('/documents/?index=idx-b')
-        self.assertEqual(json_load(response.data)['document_count'], 4)
+        data = self.get_json('/documents/?index=idx-b')
+        self.assertEqual(data['document_count'], 4)
 
         # Both indexes -- shared doc counted once, 9 not 10.
-        response = self.app.get('/documents/?index=idx-a&index=idx-b')
-        self.assertEqual(json_load(response.data)['document_count'], 9)
+        data = self.get_json('/documents/?index=idx-a&index=idx-b')
+        self.assertEqual(data['document_count'], 9)
 
     def test_pagination_urls(self):
         idx = Index.create(name='idx')
@@ -1132,20 +1317,20 @@ class TestSearchViews(BaseTestCase):
             idx.index('document %d' % i, color='red')
 
         # Page 1 of 3.
-        data = json_load(self.app.get('/documents/').data)
+        data = self.get_json('/documents/')
         self.assertEqual(data['page'], 1)
         self.assertEqual(data['pages'], 3)
         self.assertTrue(data['next_url'].endswith('/documents/?page=2'))
         self.assertIsNone(data['previous_url'])
 
         # Page 2: has both prev and next.
-        data = json_load(self.app.get('/documents/?page=2').data)
+        data = self.get_json('/documents/?page=2')
         self.assertEqual(data['page'], 2)
         self.assertTrue(data['next_url'].endswith('/documents/?page=3'))
         self.assertTrue(data['previous_url'].endswith('/documents/?page=1'))
 
         # Page 3 (last): no next.
-        data = json_load(self.app.get('/documents/?page=3').data)
+        data = self.get_json('/documents/?page=3')
         self.assertEqual(data['page'], 3)
         self.assertIsNone(data['next_url'])
         self.assertIsNotNone(data['previous_url'])
@@ -1153,12 +1338,12 @@ class TestSearchViews(BaseTestCase):
         # Single page: no prev or next.
         idx2 = Index.create(name='lonely')
         idx2.index('only doc')
-        data = json_load(self.app.get('/lonely/').data)
+        data = self.get_json('/lonely/')
         self.assertIsNone(data['next_url'])
         self.assertIsNone(data['previous_url'])
 
         # Query params are preserved in pagination URLs.
-        data = json_load(self.app.get('/idx/?q=document&color=red').data)
+        data = self.get_json('/idx/?q=document&color=red')
         next_url = data['next_url']
         self.assertIn('page=2', next_url)
         self.assertIn('q=document', next_url)
@@ -1167,178 +1352,21 @@ class TestSearchViews(BaseTestCase):
         # Index list and attachment list also have pagination.
         for i in range(25):
             Index.create(name='idx-%02d' % i)
-        data = json_load(self.app.get('/').data)
+        data = self.get_json('/')
         self.assertIn('next_url', data)
 
         doc = idx.index('doc')
         for i in range(15):
             doc.attach('file_%02d.txt' % i, b'data')
-        data = json_load(self.app.get(
-            '/documents/%s/attachments/' % doc.get_id()).data)
+        data = self.get_json('/documents/%s/attachments/' % doc.get_id())
         self.assertIn('next_url', data)
 
-    def test_global_attachments(self):
-        idx = Index.create(name='idx')
-        idx2 = Index.create(name='idx2')
 
-        # Empty state.
-        data = json_load(self.app.get('/attachments/').data)
-        self.assertEqual(data['attachments'], [])
-        self.assertEqual(data['page'], 1)
-        self.assertEqual(data['pages'], 0)
-
-        doc = idx.index('doc')
-        doc.attach('photo.jpg', b'jpeg')
-        doc.attach('notes.txt', b'text')
-        doc.attach('logo.png', b'png')
-
-        doc2 = idx2.index('doc')
-        doc2.attach('d2.jpg', b'jpeg2')
-        doc2.attach('notes.txt', b'text2')
-
-        # All attachments.
-        data = json_load(self.app.get('/attachments/').data)
-        self.assertEqual(len(data['attachments']), 5)
-
-        # Filter by mimetype.
-        data = json_load(
-            self.app.get('/attachments/?mimetype=image/jpeg').data)
-        self.assertEqual(
-            sorted(a['filename'] for a in data['attachments']),
-            ['d2.jpg', 'photo.jpg'])
-
-        # Filter by filename.
-        data = json_load(
-            self.app.get('/attachments/?filename=notes.txt').data)
-        self.assertEqual(len(data['attachments']), 2)
-
-        # Filter by index.
-        data = json_load(self.app.get('/attachments/?index=idx2').data)
-        self.assertEqual(
-            sorted(a['filename'] for a in data['attachments']),
-            ['d2.jpg', 'notes.txt'])
-
-        data = json_load(
-            self.app.get('/attachments/?index=idx&index=idx2').data)
-        self.assertEqual(len(data['attachments']), 5)
-
-        data = json_load(
-            self.app.get('/attachments/?index=nope').data)
-        self.assertEqual(len(data['attachments']), 0)
-
-        # Ordering.
-        data = json_load(
-            self.app.get('/attachments/?index=idx&ordering=-filename').data)
-        filenames = [a['filename'] for a in data['attachments']]
-        self.assertEqual(filenames, ['photo.jpg', 'notes.txt', 'logo.png'])
-
-        # Auth required.
-        app.config['AUTHENTICATION'] = 'secret'
-        try:
-            self.assertEqual(self.app.get('/attachments/').status_code, 401)
-            self.assertEqual(
-                self.app.get('/attachments/?key=secret').status_code, 200)
-        finally:
-            app.config['AUTHENTICATION'] = None
-
-
-class TestDocLookupModelLevel(BaseTestCase):
+class TestDocLookupHTTP(HTTPTestCase):
+    """Identifier-based document lookup via the HTTP API."""
     def setUp(self):
-        super(TestDocLookupModelLevel, self).setUp()
+        super().setUp()
         self.index = Index.create(name='idx')
-
-    def test_create_and_get(self):
-        # With identifier -- lookup created, resolvable by identifier or rowid.
-        doc = self.index.index(content='hello world', identifier='my-doc')
-        self.assertEqual(DocLookup.select().count(), 1)
-        lookup = DocLookup.get(DocLookup.identifier == 'my-doc')
-        self.assertEqual(lookup.rowid, doc.rowid)
-
-        found = DocLookup.get_document('my-doc')
-        self.assertEqual(found.rowid, doc.rowid)
-        self.assertEqual(found.content, 'hello world')
-
-        found = DocLookup.get_document(doc.rowid)
-        self.assertEqual(found.content, 'hello world')
-
-        found = DocLookup.get_document(str(doc.rowid))
-        self.assertEqual(found.content, 'hello world')
-
-        # Without identifier -- no lookup created.
-        self.index.index(content='no ident')
-        self.assertEqual(DocLookup.select().count(), 1)
-
-    def test_update_and_clear_identifier(self):
-        doc = self.index.index(content='hello', identifier='old-id')
-
-        # Update identifier.
-        self.index.index(content='hello updated', document=doc,
-                         identifier='new-id')
-        self.assertEqual(DocLookup.select().count(), 1)
-        self.assertEqual(DocLookup.get().identifier, 'new-id')
-        self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'old-id')
-        self.assertEqual(DocLookup.get_document('new-id').rowid, doc.rowid)
-
-        # Clear identifier.
-        self.index.index(content='hello cleared', document=doc,
-                         identifier=None)
-        self.assertEqual(DocLookup.select().count(), 0)
-        self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'new-id')
-
-    def test_reuse_identifier_on_new_document(self):
-        doc1 = self.index.index(content='first', identifier='reused')
-        doc2 = self.index.index(content='second', identifier='reused')
-        self.assertEqual(DocLookup.select().count(), 1)
-        found = DocLookup.get_document('reused')
-        self.assertEqual(found.rowid, doc2.rowid)
-        self.assertNotEqual(found.rowid, doc1.rowid)
-
-    def test_multiple_documents_distinct_identifiers(self):
-        doc_a = self.index.index(content='aaa', identifier='id-a')
-        doc_b = self.index.index(content='bbb', identifier='id-b')
-        self.index.index(content='ccc')
-
-        self.assertEqual(DocLookup.select().count(), 2)
-        self.assertEqual(DocLookup.get_document('id-a').rowid, doc_a.rowid)
-        self.assertEqual(DocLookup.get_document('id-b').rowid, doc_b.rowid)
-        self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'id-c')
-
-    def test_swap_identifiers(self):
-        doc_a = self.index.index(content='aaa', identifier='id-a')
-        doc_b = self.index.index(content='bbb', identifier='id-b')
-
-        # Clear a, assign a's old id to b, assign b's old id to a.
-        self.index.index(content='aaa', document=doc_a, identifier=None)
-        self.index.index(content='bbb', document=doc_b, identifier='id-a')
-        self.index.index(content='aaa', document=doc_a, identifier='id-b')
-
-        self.assertEqual(DocLookup.get_document('id-a').rowid, doc_b.rowid)
-        self.assertEqual(DocLookup.get_document('id-b').rowid, doc_a.rowid)
-
-
-class TestDocLookupHTTP(BaseTestCase):
-    def setUp(self):
-        super(TestDocLookupHTTP, self).setUp()
-        self.app = app.test_client()
-        app.config['AUTHENTICATION'] = None
-        self.index = Index.create(name='idx')
-
-    def post_json(self, url, data):
-        response = self.app.post(
-            url,
-            data=json.dumps(data),
-            headers={'content-type': 'application/json'})
-        return json_load(response.data)
-
-    def put_json(self, url, data):
-        response = self.app.put(
-            url,
-            data=json.dumps(data),
-            headers={'content-type': 'application/json'})
-        return json_load(response.data)
 
     def _create(self, content, identifier=None, **meta):
         payload = {'content': content, 'index': 'idx'}
@@ -1349,7 +1377,7 @@ class TestDocLookupHTTP(BaseTestCase):
         return self.post_json('/documents/', payload)
 
     def _get(self, pk):
-        return json_load(self.app.get('/documents/%s/' % pk).data)
+        return self.get_json('/documents/%s/' % pk)
 
     def _update(self, pk, **data):
         return self.put_json('/documents/%s/' % pk, data)
@@ -1546,7 +1574,7 @@ class TestDocLookupHTTP(BaseTestCase):
     def test_search_finds_doc_after_identifier_change(self):
         self._create('unique platypus content', identifier='before')
         self._update('before', identifier='after')
-        resp = json_load(self.app.get('/idx/?q=platypus').data)
+        resp = self.get_json('/idx/?q=platypus')
         self.assertEqual(len(resp['documents']), 1)
         self.assertEqual(resp['documents'][0]['identifier'], 'after')
 
@@ -1629,6 +1657,10 @@ class TestDocLookupHTTP(BaseTestCase):
             self._delete(doc_id)
             self.assertLookupCount(0)
 
+
+#
+# Layer 3: HTTP via the Client
+#
 
 class FlaskScout(Scout):
     def __init__(self, flask_app, key=None):
@@ -1963,6 +1995,10 @@ class TestScoutClient(BaseTestCase):
         results = self.scout.get_index('blog', q='python')
         self.assertEqual(len(results['documents']), 0)
 
+
+#
+# Layer 4: FTS5-specific
+#
 
 class FTS5TestCase(BaseTestCase):
     def setUp(self):
