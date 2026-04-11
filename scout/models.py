@@ -224,6 +224,12 @@ class Index(BaseModel):
     def index(self, content, document=None, identifier=SENTINEL, **metadata):
         identifier_value = None if identifier is SENTINEL else identifier
 
+        if document is None and identifier_value:
+            try:
+                document = DocLookup.get_document(identifier_value)
+            except Document.DoesNotExist:
+                pass
+
         if document is None:
             document = Document.create(
                 content=content,
@@ -234,12 +240,11 @@ class Index(BaseModel):
                     identifier=identifier).execute()
         else:
             del document.metadata
-            nrows = (Document
-                     .update(
-                         content=content,
-                         identifier=identifier_value)
-                     .where(Document.rowid == document.rowid)
-                     .execute())
+            document.content = content
+            if identifier is not SENTINEL:
+                document.identifier = identifier
+            document.save()
+
             if identifier_value:
                 DocLookup.replace(
                     rowid=document.rowid,

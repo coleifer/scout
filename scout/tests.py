@@ -271,6 +271,30 @@ class TestModelAPIs(BaseTestCase):
         self.assertEqual(
             Metadata.select().where(Metadata.document == doc.rowid).count(), 1)
 
+    def test_model_dedup_on_identifier(self):
+        doc1 = self.index.index('first', identifier='dedup')
+        doc2 = self.index.index('second', identifier='dedup')
+        self.assertEqual(Document.select().count(), 1)
+        self.assertEqual(doc2.rowid, doc1.rowid)
+        refreshed = Document.all().where(Document.rowid == doc1.rowid).get()
+        self.assertEqual(refreshed.content, 'second')
+
+    def test_reindex_without_identifier_preserves_it(self):
+        doc = self.index.index('original', identifier='keep-me')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        self.index.index('updated content', document=doc)
+        self.assertEqual(DocLookup.select().count(), 1)
+        self.assertEqual(DocLookup.get().identifier, 'keep-me')
+        refreshed = Document.all().where(Document.rowid == doc.rowid).get()
+        self.assertEqual(refreshed.content, 'updated content')
+        self.assertEqual(refreshed.identifier, 'keep-me')
+
+    def test_attach_sanitizes_empty_filename(self):
+        doc = self.index.index('test')
+        attachment = doc.attach('...', b'data')
+        self.assertEqual(attachment.filename, 'unnamed')
+
 
 class TestModelSearch(BaseTestCase):
     """Model-level search engine tests with a large metadata-rich dataset."""
@@ -505,9 +529,10 @@ class TestDocLookupModelLevel(BaseTestCase):
         doc1 = self.index.index(content='first', identifier='reused')
         doc2 = self.index.index(content='second', identifier='reused')
         self.assertEqual(DocLookup.select().count(), 1)
+        self.assertEqual(Document.select().count(), 1)
         found = DocLookup.get_document('reused')
         self.assertEqual(found.rowid, doc2.rowid)
-        self.assertNotEqual(found.rowid, doc1.rowid)
+        self.assertEqual(found.rowid, doc1.rowid)
 
     def test_multiple_documents_distinct_identifiers(self):
         doc_a = self.index.index(content='aaa', identifier='id-a')
@@ -1203,6 +1228,20 @@ class TestHTTPAttachments(HTTPTestCase):
         data = self.get_json(
             '/documents/%s/attachments/?ordering=mimetype' % doc.get_id())
         self.assertEqual(len(data['attachments']), 3)
+
+    def test_http_delete_attachment_cleans_orphaned_blobs(self):
+        idx = Index.create(name='idx')
+        d1 = idx.index('doc1')
+        d2 = idx.index('doc2')
+
+        d1.attach('unique.txt', b'only-here')
+        self.app.delete('/documents/%s/attachments/unique.txt/' % d1.get_id())
+        self.assertEqual(BlobData.select().count(), 0)
+
+        d1.attach('shared.txt', b'shared-data')
+        d2.attach('also-shared.txt', b'shared-data')
+        self.app.delete('/documents/%s/attachments/shared.txt/' % d1.get_id())
+        self.assertEqual(BlobData.select().count(), 1)
 
 
 class TestHTTPSearch(HTTPTestCase):
