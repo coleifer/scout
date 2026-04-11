@@ -349,7 +349,7 @@ class DocumentView(_FileProcessingView):
         with database.atomic():
             document = Document.create(
                 content=data['content'],
-                identifier=identifier)
+                identifier=identifier or None)
 
             if identifier:
                 DocLookup.set_identifier(document, identifier)
