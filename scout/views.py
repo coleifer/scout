@@ -350,7 +350,7 @@ class DocumentView(_FileProcessingView):
             content=data['content'],
             identifier=identifier)
 
-        if identifier is not None:
+        if identifier:
             DocLookup.replace(
                 rowid=document.rowid,
                 identifier=identifier).execute()
@@ -383,13 +383,14 @@ class DocumentView(_FileProcessingView):
         if 'content' in data and data['content'] is not None:
             document.content = data['content']
             save_document = True
-        if 'identifier' in data and data['identifier'] is not None:
+
+        if 'identifier' in data and data['identifier']:
             document.identifier = data['identifier']
             DocLookup.replace(rowid=document.rowid,
                               identifier=document.identifier).execute()
             save_document = True
         elif 'identifier' in data and document.identifier:
-            document.identifier = ''
+            document.identifier = None
             (DocLookup.delete()
              .where(DocLookup.rowid == document.rowid)
              .execute())

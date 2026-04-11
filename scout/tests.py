@@ -1800,6 +1800,166 @@ class TestDocLookupHTTP(BaseTestCase):
             self.app.delete('/documents/%s/' % resp['id'])
             self.assertEqual(DocLookup.select().count(), 0)
 
+    def test_empty_string_identifier(self):
+        """Empty string identifier is falsy — should behave like no identifier."""
+        resp = self._create('hello', identifier='')
+        doc_id = resp['id']
+        # Empty string is falsy, so no lookup should be created.
+        # If this fails, empty-string identifiers leak into DocLookup
+        # and a second create with identifier='' would hit a unique
+        # constraint violation.
+        self.assertEqual(DocLookup.select().count(), 0)
+
+        # A second empty-identifier doc should not collide.
+        resp2 = self._create('world', identifier='')
+        self.assertNotEqual(resp2['id'], doc_id)
+
+        # Lookup not created.
+        self.put_json('/documents/%s/' % doc_id, {'identifier': ''})
+        self.assertEqual(DocLookup.select().count(), 0)
+
+        self.put_json('/documents/%s/' % doc_id, {'identifier': 'x'})
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        self.put_json('/documents/%s/' % doc_id, {'identifier': ''})
+        self.assertEqual(DocLookup.select().count(), 0)
+        self.assertEqual(Document.get(rowid=doc_id).identifier, None)
+
+        self.put_json('/documents/%s/' % doc_id, {'identifier': 'y'})
+        self.assertEqual(DocLookup.select().count(), 1)
+        self.put_json('/documents/%s/' % doc_id, {'identifier': 'z'})
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        self.assertEqual(DocLookup.get().identifier, 'z')
+        self.assertEqual(Document.get(rowid=doc_id).identifier, 'z')
+
+        self.put_json('/documents/%s/' % doc_id, {'identifier': None})
+        self.assertEqual(DocLookup.select().count(), 0)
+        self.assertEqual(Document.get(rowid=doc_id).identifier, None)
+
+    def test_steal_identifier_via_update(self):
+        """Updating doc B's identifier to doc A's identifier steals it."""
+        r1 = self._create('owner', identifier='mine')
+        r2 = self._create('thief', identifier='other')
+
+        # Thief takes owner's identifier.
+        self.put_json('/documents/%s/' % r2['id'], {'identifier': 'mine'})
+
+        detail = json_load(self.app.get('/documents/mine/').data)
+        self.assertEqual(detail['id'], r2['id'])
+        self.assertEqual(detail['content'], 'thief')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        # Original owner is now unreachable by identifier.
+        # But still reachable by rowid.
+        orig = json_load(self.app.get('/documents/%s/' % r1['id']).data)
+        self.assertEqual(orig['content'], 'owner')
+
+    def test_update_content_and_identifier_simultaneously(self):
+        """Setting both content and identifier in one PUT."""
+        resp = self._create('old content', identifier='old-id')
+        doc_id = resp['id']
+
+        self.put_json('/documents/%s/' % doc_id, {
+            'content': 'new content',
+            'identifier': 'new-id'})
+
+        self.assertEqual(self.app.get('/documents/old-id/').status_code, 404)
+        detail = json_load(self.app.get('/documents/new-id/').data)
+        self.assertEqual(detail['content'], 'new content')
+        self.assertEqual(detail['id'], doc_id)
+
+    def test_index_deletion_does_not_affect_lookup(self):
+        """Deleting the index leaves the document and its lookup intact."""
+        resp = self._create('indexed doc', identifier='survives')
+        doc_id = resp['id']
+
+        self.app.delete('/idx/')
+        # Index is gone but DocLookup still resolves.
+        detail = json_load(self.app.get('/documents/survives/').data)
+        self.assertEqual(detail['id'], doc_id)
+        self.assertEqual(detail['indexes'], [])
+
+    def test_move_between_indexes_preserves_lookup(self):
+        """Changing a document's index memberships doesn't touch its lookup."""
+        Index.create(name='other')
+        resp = self._create('mobile doc', identifier='mobile')
+        doc_id = resp['id']
+
+        self.put_json('/documents/%s/' % doc_id,
+                      {'indexes': ['other']})
+
+        detail = json_load(self.app.get('/documents/mobile/').data)
+        self.assertEqual(detail['id'], doc_id)
+        self.assertEqual(detail['indexes'], ['other'])
+
+    def test_dedup_create_across_indexes(self):
+        """POST with existing identifier updates even if index list differs."""
+        Index.create(name='other')
+        r1 = self._create('v1', identifier='cross-idx')
+        self.assertEqual(r1['indexes'], ['idx'])
+
+        r2 = self.post_json('/documents/', {
+            'content': 'v2',
+            'identifier': 'cross-idx',
+            'indexes': ['other']})
+
+        self.assertEqual(r2['id'], r1['id'])
+        self.assertEqual(r2['content'], 'v2')
+        self.assertIn('other', r2['indexes'])
+        self.assertEqual(Document.select().count(), 1)
+
+    def test_numeric_string_identifier_does_not_shadow_rowid(self):
+        """A purely numeric identifier only matches via DocLookup, not rowid."""
+        # Create docs to push rowids up, then use a low number as identifier.
+        for i in range(5):
+            self._create('filler-%d' % i)
+
+        resp = self._create('the target', identifier='3')
+        target_id = resp['id']
+
+        # Fetching /documents/3/ by rowid still gets filler-2 (rowid=3).
+        filler = json_load(self.app.get('/documents/3/').data)
+        self.assertEqual(filler['content'], 'filler-2')
+
+        # But if we delete filler-2, the identifier fallback kicks in.
+        self.app.delete('/documents/%s/' % 3)
+        detail = json_load(self.app.get('/documents/3/').data)
+        self.assertEqual(detail['id'], target_id)
+        self.assertEqual(detail['content'], 'the target')
+
+    def test_clear_then_set_same_identifier(self):
+        """Clear and immediately re-set the same identifier on the same doc."""
+        resp = self._create('sticky', identifier='boomerang')
+        doc_id = resp['id']
+
+        self.put_json('/documents/%s/' % doc_id, {'identifier': None})
+        self.assertEqual(DocLookup.select().count(), 0)
+
+        self.put_json('/documents/%s/' % doc_id, {'identifier': 'boomerang'})
+        detail = json_load(self.app.get('/documents/boomerang/').data)
+        self.assertEqual(detail['id'], doc_id)
+        self.assertEqual(DocLookup.select().count(), 1)
+
+    def test_metadata_survives_identifier_change(self):
+        """Changing identifier doesn't clobber metadata."""
+        resp = self._create('tagged', identifier='m1', color='red', size='big')
+        doc_id = resp['id']
+
+        self.put_json('/documents/%s/' % doc_id, {'identifier': 'm2'})
+        detail = json_load(self.app.get('/documents/m2/').data)
+        self.assertEqual(detail['metadata'], {'color': 'red', 'size': 'big'})
+
+    def test_search_finds_doc_after_identifier_change(self):
+        """Full-text search still returns a doc whose identifier was changed."""
+        self._create('unique platypus content', identifier='before')
+        self.put_json('/documents/before/', {'identifier': 'after'})
+
+        resp = self.app.get('/idx/?q=platypus')
+        data = json_load(resp.data)
+        self.assertEqual(len(data['documents']), 1)
+        self.assertEqual(data['documents'][0]['identifier'], 'after')
+
 
 class FlaskScout(Scout):
     def __init__(self, flask_app, key=None):
@@ -2114,6 +2274,21 @@ class TestScoutClient(BaseTestCase):
         self.assertEqual(att['filename'], 'hello.txt')
         self.assertEqual(att['document'], '/documents/%d/' % doc_id)
         self.assertEqual(att['mimetype'], 'text/plain')
+
+    def test_attachments_via_identifier_url(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('doc', 'idx', identifier='file-host')
+
+        self.scout.attach_files('file-host', {
+            'test.txt': BytesIO(b'payload')})
+
+        resp = self.scout.get_attachments('file-host')
+        self.assertEqual(len(resp['attachments']), 1)
+        self.assertEqual(resp['attachments'][0]['filename'], 'test.txt')
+
+        # Download via identifier URL.
+        dl = self.scout.download_attachment('file-host', 'test.txt')
+        self.assertEqual(dl, b'payload')
 
     def test_get_attachment_detail(self):
         self.scout.create_index('idx')
