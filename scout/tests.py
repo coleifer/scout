@@ -1367,6 +1367,19 @@ class TestHTTPSearch(HTTPTestCase):
             {'kitty': 'yes'},
             ['huey document', 'zaizee document'])
 
+    def test_numeric_metadata_filter_via_http(self):
+        idx = Index.create(name='idx')
+        for i in (1, 5, 10, 20, 100):
+            idx.index('item-%d' % i, price=str(i))
+
+        data = self.search('idx', 'item*', price__gt='9')
+        contents = sorted(d['content'] for d in data['documents'])
+        self.assertEqual(contents, ['item-10', 'item-100', 'item-20'])
+
+        data = self.search('idx', 'item*', price__le='5')
+        contents = sorted(d['content'] for d in data['documents'])
+        self.assertEqual(contents, ['item-1', 'item-5'])
+
     def test_query_count(self):
         idx_a = Index.create(name='idx-a')
         idx_b = Index.create(name='idx-b')
