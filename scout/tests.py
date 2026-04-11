@@ -259,6 +259,9 @@ class TestModelAPIs(BaseTestCase):
         self.assertEqual(Attachment.select().count(), 0)
         self.assertEqual(BlobData.select().count(), 0)
 
+        # Detach nonexistent filename returns 0, no error.
+        self.assertEqual(doc1.detach('nope.txt'), 0)
+
 
 class TestModelSearch(BaseTestCase):
     """Model-level search engine tests with a large metadata-rich dataset."""
@@ -386,6 +389,12 @@ class TestModelSearch(BaseTestCase):
             'mickey',
             'oreo',
             'zaizee',
+        ])
+
+        docs = engine.search('*', index=self.index, dob__le='2008-04-01')
+        self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
+            '2007-02-01',
+            '2008-04-01',
         ])
 
     def test_invalid_op(self):
@@ -836,6 +845,32 @@ class TestHTTPViews(HTTPTestCase):
         # Only shared blob survives (referenced by d2).
         self.assertEqual(BlobData.select().count(), 1)
 
+    def test_create_duplicate_index(self):
+        self.post_json('/', {'name': 'idx'})
+        resp = self.post_json('/', {'name': 'idx'})
+        self.assertIn('already exists', resp['error'])
+        self.assertEqual(Index.select().count(), 1)
+
+    def test_rename_index_collision(self):
+        self.post_json('/', {'name': 'idx-a'})
+        self.post_json('/', {'name': 'idx-b'})
+        resp = self.post_json('/idx-b/', {'name': 'idx-a'})
+        self.assertIn('already in use', resp['error'])
+        # Names unchanged.
+        names = sorted(idx.name for idx in Index.select())
+        self.assertEqual(names, ['idx-a', 'idx-b'])
+
+    def test_create_document_missing_content(self):
+        Index.create(name='idx')
+        resp = self.post_json('/documents/', {'index': 'idx'})
+        self.assertIn('content', resp['error'])
+        self.assertEqual(Document.select().count(), 0)
+
+        resp = self.post_json('/documents/', {
+            'content': None, 'index': 'idx'})
+        self.assertIn('content', resp['error'])
+        self.assertEqual(Document.select().count(), 0)
+
 
 class TestHTTPAttachments(HTTPTestCase):
     """Attachment CRUD and global attachment views via the HTTP API."""
@@ -1067,6 +1102,80 @@ class TestHTTPAttachments(HTTPTestCase):
                 self.app.get('/attachments/?key=secret').status_code, 200)
         finally:
             app.config['AUTHENTICATION'] = None
+
+    def test_attachment_create_no_files(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('doc')
+        resp = self.app.post('/documents/%s/attachments/' % doc.get_id(),
+                             data={'data': '{}'})
+        data = json_load(resp.data)
+        self.assertIn('error', data)
+
+    def test_attachment_update_file_count_errors(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('doc')
+        doc.attach('f.txt', b'original')
+
+        # Update with no file.
+        resp = self.app.post('/documents/%s/attachments/f.txt/' % doc.get_id(),
+                             data={'data': '{}'})
+        data = json_load(resp.data)
+        self.assertIn('error', data)
+
+        # Update with two files.
+        resp = self.app.post(
+            '/documents/%s/attachments/f.txt/' % doc.get_id(),
+            data={
+                'data': '{}',
+                'file_0': (BytesIO(b'a'), 'f.txt'),
+                'file_1': (BytesIO(b'b'), 'g.txt')})
+        data = json_load(resp.data)
+        self.assertIn('error', data)
+
+        # Original unchanged.
+        self.assertEqual(Attachment.select().count(), 1)
+
+    def test_attachment_404s(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('doc')
+        doc.attach('exists.txt', b'data')
+
+        # Nonexistent filename on existing document.
+        resp = self.app.get('/documents/%s/attachments/nope.txt/' %
+                            doc.get_id())
+        self.assertEqual(resp.status_code, 404)
+
+        # Nonexistent document entirely.
+        resp = self.app.get('/documents/9999/attachments/anything/')
+        self.assertEqual(resp.status_code, 404)
+
+        # Download 404.
+        resp = self.app.get('/documents/%s/attachments/nope.txt/download/' %
+                            doc.get_id())
+        self.assertEqual(resp.status_code, 404)
+
+    def test_per_document_attachment_ordering(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('doc')
+        doc.attach('b.txt', b'bb')
+        doc.attach('a.txt', b'a')
+        doc.attach('c.txt', b'ccc')
+
+        # Default: sorted by filename ascending.
+        data = self.get_json('/documents/%s/attachments/' % doc.get_id())
+        filenames = [a['filename'] for a in data['attachments']]
+        self.assertEqual(filenames, ['a.txt', 'b.txt', 'c.txt'])
+
+        # Reverse filename.
+        data = self.get_json(
+            '/documents/%s/attachments/?ordering=-filename' % doc.get_id())
+        filenames = [a['filename'] for a in data['attachments']]
+        self.assertEqual(filenames, ['c.txt', 'b.txt', 'a.txt'])
+
+        # By mimetype (all text/plain here, so falls back to stable order).
+        data = self.get_json(
+            '/documents/%s/attachments/?ordering=mimetype' % doc.get_id())
+        self.assertEqual(len(data['attachments']), 3)
 
 
 class TestHTTPSearch(HTTPTestCase):
@@ -1360,6 +1469,52 @@ class TestHTTPSearch(HTTPTestCase):
             doc.attach('file_%02d.txt' % i, b'data')
         data = self.get_json('/documents/%s/attachments/' % doc.get_id())
         self.assertIn('next_url', data)
+
+    def test_index_list_ordering(self):
+        idx_a = Index.create(name='alpha')
+        idx_c = Index.create(name='charlie')
+        idx_b = Index.create(name='bravo')
+        idx_a.index('doc1')
+        idx_a.index('doc2')
+        idx_a.index('doc3')
+        idx_b.index('doc1')
+
+        # Default: by name ascending.
+        data = self.get_json('/')
+        names = [idx['name'] for idx in data['indexes']]
+        self.assertEqual(names, ['alpha', 'bravo', 'charlie'])
+
+        # By name descending.
+        data = self.get_json('/?ordering=-name')
+        names = [idx['name'] for idx in data['indexes']]
+        self.assertEqual(names, ['charlie', 'bravo', 'alpha'])
+
+        # By document_count descending.
+        data = self.get_json('/?ordering=-document_count')
+        names = [idx['name'] for idx in data['indexes']]
+        self.assertEqual(names[0], 'alpha')
+
+        # By id.
+        data = self.get_json('/?ordering=id')
+        ids = [idx['id'] for idx in data['indexes']]
+        self.assertEqual(ids, sorted(ids))
+
+    def test_documents_endpoint_ordering(self):
+        idx = Index.create(name='idx')
+        for content in self.corpus:
+            idx.index(content)
+
+        # Order by content.
+        data = self.get_json('/documents/?index=idx&q=faith&ranking=bm25'
+                             '&ordering=content')
+        contents = [d['content'] for d in data['documents']]
+        self.assertEqual(contents, sorted(contents))
+
+        # Order by id descending.
+        data = self.get_json('/documents/?index=idx&q=faith&ranking=bm25'
+                             '&ordering=-id')
+        ids = [d['id'] for d in data['documents']]
+        self.assertEqual(ids, sorted(ids, reverse=True))
 
 
 class TestDocLookupHTTP(HTTPTestCase):
