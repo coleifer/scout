@@ -20,6 +20,7 @@ class Serializer(object):
 
 class DocumentSerializer(object):
     def serialize(self, document, prefetched=False, include_score=False):
+        doc_id = document.identifier or document.rowid
         data = {
             'id': document.rowid,
             'identifier': document.identifier,
@@ -33,7 +34,7 @@ class DocumentSerializer(object):
             'timestamp': str(attachment.timestamp),
             'data': url_for(
                 'attachment_download',
-                document_id=document.rowid,
+                document_id=doc_id,
                 pk=attachment.filename)}
             for attachment in sorted(document.attachments, key=_filename)]
 
@@ -71,15 +72,22 @@ class DocumentSerializer(object):
 
 class AttachmentSerializer(Serializer):
     def serialize(self, attachment, include_score=False):
+        doc_id = attachment.document_id
+        # If the document has an identifier, prefer it for URL construction.
+        try:
+            doc = attachment.document
+            if doc.identifier:
+                doc_id = doc.identifier
+        except Exception:
+            pass
         data = {
             'filename': attachment.filename,
             'mimetype': attachment.mimetype,
             'timestamp': str(attachment.timestamp),
             'data_length': attachment.length,
-            'document': url_for('document_view_detail',
-                                pk=attachment.document_id),
+            'document': url_for('document_view_detail', pk=doc_id),
             'data': url_for('attachment_download',
-                            document_id=attachment.document_id,
+                            document_id=doc_id,
                             pk=attachment.filename)}
         if include_score:
             data['score'] = attachment.score

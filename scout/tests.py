@@ -963,7 +963,7 @@ class TestHTTPAttachments(HTTPTestCase):
 
         Attachment.update(timestamp='2016-02-01 01:02:03').execute()
 
-        with assert_query_count(3):
+        with assert_query_count(4) as ctx:
             data = self.get_json('/documents/1/attachments/')
 
         self.assertEqual(data, {
@@ -998,7 +998,7 @@ class TestHTTPAttachments(HTTPTestCase):
         for i in range(10):
             doc.attach('a%s.txt' % i, b'aaa')
 
-        with assert_query_count(4):
+        with assert_query_count(5) as ctx:
             data = self.get_json('/documents/%s/' % doc.get_id())
 
         self.assertEqual(len(data['attachments']), 10)
@@ -1826,19 +1826,18 @@ class TestDocLookupHTTP(HTTPTestCase):
         self.assertIsNone(Document.all().where(
             Document.rowid == r1['id']).get().identifier)
 
-    def test_numeric_string_identifier_does_not_shadow_rowid(self):
+    def test_identifier_precedence(self):
         for i in range(5):
             self._create('filler-%d' % i)
         target_id = self._create('the target', identifier='3')['id']
 
-        # Rowid 3 wins over identifier '3'.
-        self.assertEqual(self._get(3)['content'], 'filler-2')
+        # User identifier is preferred.
+        self.assertEqual(self._get(3)['content'], 'the target')
 
-        # After deleting rowid 3, identifier fallback kicks in.
+        # After deleting identifier 3, rowid fallback kicks in.
         self._delete(3)
         detail = self._get(3)
-        self.assertEqual(detail['id'], target_id)
-        self.assertEqual(detail['content'], 'the target')
+        self.assertEqual(detail['content'], 'filler-2')
 
     def test_identifier_same_as_other_docs_rowid(self):
         """Create dedup must match by identifier only, not rowid."""

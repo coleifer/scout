@@ -337,11 +337,11 @@ class DocumentView(_FileProcessingView):
         if data.get('identifier'):
             try:
                 doc = (Document
-                       .select()
+                       .all()
                        .join(DocLookup, on=(DocLookup.rowid == Document.rowid))
                        .where(DocLookup.identifier == data['identifier'])
                        .get())
-                return self.update(doc.rowid)
+                return self.update(doc.rowid, document=doc)
             except Document.DoesNotExist:
                 pass
 
@@ -351,9 +351,7 @@ class DocumentView(_FileProcessingView):
             identifier=identifier)
 
         if identifier:
-            DocLookup.replace(
-                rowid=document.rowid,
-                identifier=identifier).execute()
+            DocLookup.set_identifier(document, identifier)
 
         if data.get('metadata'):
             document.metadata = data['metadata']
@@ -370,8 +368,9 @@ class DocumentView(_FileProcessingView):
 
         return self.detail(document.get_id())
 
-    def update(self, pk):
-        document = self._get_document(pk)
+    def update(self, pk, document=None):
+        if document is None:
+            document = self._get_document(pk)
         data = validator.parse_post([], [
             'content',
             'identifier',
@@ -385,15 +384,10 @@ class DocumentView(_FileProcessingView):
             save_document = True
 
         if 'identifier' in data and data['identifier']:
-            document.identifier = data['identifier']
-            DocLookup.replace(rowid=document.rowid,
-                              identifier=document.identifier).execute()
+            DocLookup.set_identifier(document, data['identifier'])
             save_document = True
         elif 'identifier' in data and document.identifier:
-            document.identifier = None
-            (DocLookup.delete()
-             .where(DocLookup.rowid == document.rowid)
-             .execute())
+            DocLookup.set_identifier(document, None)
             save_document = True
 
         if save_document:
@@ -478,8 +472,10 @@ class AttachmentView(_FileProcessingView):
     def list_view(self, document_id):
         document = self._get_document(document_id)
         query = (Attachment
-                 .select(Attachment, BlobData)
-                 .join(
+                 .select(Attachment, BlobData, Document)
+                 .join_from(Attachment, Document)
+                 .join_from(
+                     Attachment,
                      BlobData,
                      on=(Attachment.hash == BlobData.hash).alias('_blob'))
                  .where(Attachment.document == document))

@@ -128,17 +128,33 @@ class DocLookup(BaseModel):
 
     @classmethod
     def get_document(cls, pk):
-        if isinstance(pk, int) or pk.isdigit():
-            try:
-                return Document.all().where(Document.rowid == pk).get()
-            except Document.DoesNotExist:
-                pass
+        try:
+            return (Document
+                    .all()
+                    .join(DocLookup, on=(DocLookup.rowid == Document.rowid))
+                    .where(DocLookup.identifier == pk)
+                    .get())
+        except Document.DoesNotExist:
+            pass
 
-        query = (Document
-                 .all()
-                 .join(DocLookup, on=(DocLookup.rowid == Document.rowid))
-                 .where(DocLookup.identifier == pk))
-        return query.get()
+        if isinstance(pk, int) or (isinstance(pk, str) and pk.isdigit()):
+            return Document.all().where(Document.rowid == pk).get()
+
+        raise Document.DoesNotExist()
+
+    @classmethod
+    def set_identifier(cls, document, identifier):
+        """
+        Single entry-point for updating a document's identifier. Keeps
+        Document.identifier and the DocLookup table in sync.
+        """
+        if identifier:
+            document.identifier = identifier
+            cls.replace(rowid=document.rowid, identifier=identifier).execute()
+        else:
+            if document.identifier:
+                cls.delete().where(cls.rowid == document.rowid).execute()
+            document.identifier = None
 
 
 class Attachment(BaseModel):
@@ -235,24 +251,13 @@ class Index(BaseModel):
                 content=content,
                 identifier=identifier_value)
             if identifier_value:
-                DocLookup.replace(
-                    rowid=document.rowid,
-                    identifier=identifier).execute()
+                DocLookup.set_identifier(document, identifier_value)
         else:
             del document.metadata
             document.content = content
             if identifier is not SENTINEL:
-                document.identifier = identifier
+                DocLookup.set_identifier(document, identifier_value)
             document.save()
-
-            if identifier_value:
-                DocLookup.replace(
-                    rowid=document.rowid,
-                    identifier=identifier).execute()
-            elif identifier is not SENTINEL:
-                (DocLookup.delete()
-                 .where(DocLookup.rowid == document.rowid)
-                 .execute())
 
         self.add_to_index(document)
         if metadata:
