@@ -128,6 +128,9 @@ class DocLookup(BaseModel):
     rowid = RowIDField()
     identifier = TextField(unique=True)
 
+    class Meta:
+        table_name = 'main_doclookup'
+
     @classmethod
     def get_document(cls, pk):
         if isinstance(pk, int) or pk.isdigit():

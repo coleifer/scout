@@ -18,6 +18,16 @@ def main(src, dest):
     conn.execute('INSERT INTO "main_document" ("rowid", "content", "identifier") '
                  'SELECT "docid", "content", "identifier" FROM "_tmp"')
     conn.execute('DROP TABLE "_tmp"')
+
+    conn.execute('CREATE TABLE "main_doclookup" ('
+                 '"rowid" INTEGER NOT NULL PRIMARY KEY, '
+                 '"identifier" TEXT NOT NULL)')
+    conn.execute('CREATE UNIQUE INDEX "main_doclookup_identifier" '
+                 'ON "main_doclookup" ("identifier")')
+    conn.execute('INSERT INTO "main_doclookup" ("rowid", "identifier") '
+                 'SELECT "rowid", "identifier" FROM "main_document" '
+                 'WHERE "identifier" IS NOT NULL AND "identifier" != ?', ('',))
+
     conn.commit()
     conn.close()
 
