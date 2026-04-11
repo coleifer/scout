@@ -14,6 +14,8 @@ try:
 except ImportError:
     requests = None
 
+from scout.constants import SENTINEL
+
 
 class Scout(object):
     def __init__(self, endpoint='http://127.0.0.1:8000', key=None):
@@ -169,7 +171,7 @@ class Scout(object):
         return self.post('/documents/', post_data, attachments)
 
     def update_document(self, document_id, content=None, indexes=None,
-                        metadata=None, identifier=None, attachments=None):
+                        metadata=None, identifier=SENTINEL, attachments=None):
         data = {}
         if content is not None:
             data['content'] = content
@@ -179,7 +181,7 @@ class Scout(object):
             data['indexes'] = indexes
         if metadata is not None:
             data['metadata'] = metadata
-        if identifier is not None:
+        if identifier is not SENTINEL:
             data['identifier'] = identifier
 
         if not data and not attachments:

@@ -1941,6 +1941,15 @@ class TestScoutClient(BaseTestCase):
         result = self.scout.delete_document(doc['id'])
         self.assertEqual(result, {'success': True})
 
+    def test_update_document_clear_identifier(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('text', 'idx', identifier='removable')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        updated = self.scout.update_document(doc['id'], identifier=None)
+        self.assertIn(updated['identifier'], (None, ''))
+        self.assertEqual(DocLookup.select().count(), 0)
+
     def test_validate_rowid_present(self):
         self.assertRaises(ValueError, self.scout.delete_document)
         self.assertRaises(ValueError, self.scout.get_document)

@@ -13,11 +13,10 @@ except NameError:
     SqliteExtDatabase = SqliteDatabase
 from werkzeug.utils import secure_filename
 
+from scout.constants import SENTINEL
+
 
 database = SqliteExtDatabase(None, regexp_function=True)
-
-
-SENTINEL = object()
 
 
 class Document(FTS5Model):
