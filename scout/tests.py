@@ -1621,6 +1621,14 @@ class TestDocLookupHTTP(BaseTestCase):
         self.assertLookupCount(2)
         self.assertEqual(Document.select().count(), 2)
 
+    def test_identifier_with_special_characters(self):
+        for ident in ('has spaces', 'slashes/in/it', 'q?mark', 'pct%20enc'):
+            doc_id = self._create('content', identifier=ident)['id']
+            self.assertEqual(self._get(doc_id)['identifier'], ident)
+            self.assertLookupMaps(ident, doc_id)
+            self._delete(doc_id)
+            self.assertLookupCount(0)
+
 
 class FlaskScout(Scout):
     def __init__(self, flask_app, key=None):
