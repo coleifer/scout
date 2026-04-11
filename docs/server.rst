@@ -498,6 +498,13 @@ Response:
 * ``identifier`` (optional): an application-defined identifier for the document. If a document with the same identifier already exists, the existing document will be updated instead of creating a new one.
 * ``metadata`` (optional): arbitrary key/value pairs.
 
+.. warning::
+    Identifiers should not be purely numeric strings (e.g. ``"42"``). When
+    looking up a document, Scout first checks the ``identifier`` field, then
+    falls back to matching by internal ``id``. A numeric identifier could
+    collide with the internal ID of an unrelated document, leading to
+    unexpected results.
+
 Example ``POST`` request creating a new document:
 
 .. code-block:: console
@@ -547,9 +554,17 @@ Documents can be updated or deleted by using ``POST`` and ``DELETE`` requests,
 respectively. When updating a document, you can update the ``content``,
 ``index(es)``, ``identifier``, and/or ``metadata``.
 
-The ``:document-id`` can be either the integer document ID or a user-defined
-``identifier``. If a numeric ID does not match, Scout will attempt to look up
-the document by its ``identifier`` field.
+The ``:document-id`` parameter is resolved in the following order:
+
+1. Scout first attempts to find a document whose user-defined ``identifier``
+   matches the given value.
+2. If no match is found **and** the value is numeric, Scout falls back to
+   looking up the document by its internal ``id`` (rowid).
+
+This means a purely numeric ``identifier`` like ``"42"`` is ambiguous. If no
+document has that identifier, the request will silently resolve to whichever
+document has internal ID 42. For this reason, user-defined identifiers should
+include at least one non-numeric character (e.g. ``"doc-42"``, ``"post:42"``).
 
 .. warning::
     If you choose to update metadata, all current metadata for the document
