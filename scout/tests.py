@@ -343,6 +343,15 @@ class TestModelSearch(BaseTestCase):
             {'name__regex': 'gie$', 'idx__gt': 90},
             ['91', '95', '99'])
 
+    def test_numeric_metadata_ordering(self):
+        data = [('testing 2', '2'), ('testing 10', '10'), ('testing 1', '1'),
+                ('testing 20', '20')]
+        for content, priority in data:
+            self.index.index(content=content, priority=priority, idx=content)
+
+        self.assertResults({'priority__gt': 5}, ['testing 10', 'testing 20'])
+        self.assertResults({'priority__le': 2}, ['testing 1', 'testing 2'])
+
     def test_filter_or(self):
         self.populate()
         self.assertResults(

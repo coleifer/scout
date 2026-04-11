@@ -63,6 +63,12 @@ class DocumentSearch(object):
                 if key not in PROTECTED_KEYS])
 
     @staticmethod
+    def _is_numeric(value):
+        if isinstance(value, str):
+            return value.lstrip('-').replace('.', '', 1).isdigit()
+        return isinstance(value, (int, float))
+
+    @staticmethod
     def _build_filter_expression(key, values):
         def in_(lhs, rhs):
             return lhs.in_([i.strip() for i in rhs.split(',')])
@@ -87,13 +93,19 @@ class DocumentSearch(object):
         else:
             op = 'eq'
 
-        op = operations[op]
+        op_fn = operations[op]
+        use_cast = op in ('ge', 'gt', 'le', 'lt')
+        def compare(value):
+            if use_cast and DocumentSearch._is_numeric(value):
+                return op_fn(Metadata.value.cast('real'), float(value))
+            return op_fn(Metadata.value, value)
+
         if isinstance(values, (list, tuple)):
             expr = reduce(operator.or_, [
-                ((Metadata.key == key) & op(Metadata.value, value))
+                ((Metadata.key == key) & compare(value))
                 for value in values])
         else:
-            expr = ((Metadata.key == key) & op(Metadata.value, values))
+            expr = ((Metadata.key == key) & compare(values))
 
         return fn.EXISTS(Metadata.select().where(
             expr &
