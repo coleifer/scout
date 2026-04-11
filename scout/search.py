@@ -94,7 +94,7 @@ class DocumentSearch(object):
             op = 'eq'
 
         op_fn = operations[op]
-        use_cast = op in ('ge', 'gt', 'le', 'lt', 'eq', 'ne')
+        use_cast = op in ('ge', 'gt', 'le', 'lt')
         def compare(value):
             if use_cast and DocumentSearch._is_numeric(value):
                 return op_fn(Metadata.value.cast('real'), float(value))
