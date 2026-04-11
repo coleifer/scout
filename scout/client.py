@@ -165,9 +165,10 @@ class Scout(object):
             indexes = [indexes]
         post_data = {
             'content': content,
-            'identifier': identifier,
             'indexes': indexes,
             'metadata': metadata}
+        if identifier is not None:
+            post_data['identifier'] = identifier
         return self.post('/documents/', post_data, attachments)
 
     def update_document(self, document_id, content=None, indexes=None,

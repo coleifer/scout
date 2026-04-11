@@ -262,6 +262,15 @@ class TestModelAPIs(BaseTestCase):
         # Detach nonexistent filename returns 0, no error.
         self.assertEqual(doc1.detach('nope.txt'), 0)
 
+    def test_set_metadata_replaces_all_keys(self):
+        doc = self.index.index('test', k1='v1', k2='v2')
+        self.assertEqual(doc.metadata, {'k1': 'v1', 'k2': 'v2'})
+
+        doc.metadata = {'k3': 'v3'}
+        self.assertEqual(doc.metadata, {'k3': 'v3'})
+        self.assertEqual(
+            Metadata.select().where(Metadata.document == doc.rowid).count(), 1)
+
 
 class TestModelSearch(BaseTestCase):
     """Model-level search engine tests with a large metadata-rich dataset."""
@@ -791,6 +800,15 @@ class TestHTTPViews(HTTPTestCase):
         self.assertEqual(Document.select().count(), 1)
         self.assertEqual(response['content'], 'updated via create')
         self.assertEqual(response['metadata'], {'k': 'new-v'})
+
+    def test_update_content_null_sets_empty(self):
+        idx = Index.create(name='idx')
+        doc = idx.index('original content')
+        url = '/documents/%s/' % doc.get_id()
+
+        self.post_json(url, {'content': None})
+        data = self.get_json(url)
+        self.assertEqual(data['content'], '')
 
     def test_document_detail_delete(self):
         idx = Index.create(name='idx')
@@ -1948,6 +1966,12 @@ class TestScoutClient(BaseTestCase):
 
         updated = self.scout.update_document(doc['id'], identifier=None)
         self.assertIn(updated['identifier'], (None, ''))
+        self.assertEqual(DocLookup.select().count(), 0)
+
+    def test_create_without_identifier_no_lookup(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('no ident', 'idx')
+        self.assertIn(doc['identifier'], (None, ''))
         self.assertEqual(DocLookup.select().count(), 0)
 
     def test_validate_rowid_present(self):

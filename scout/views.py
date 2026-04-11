@@ -380,8 +380,8 @@ class DocumentView(_FileProcessingView):
             'metadata'])
 
         save_document = False
-        if 'content' in data and data['content'] is not None:
-            document.content = data['content']
+        if 'content' in data:
+            document.content = data['content'] or ''
             save_document = True
 
         if 'identifier' in data and data['identifier']:
