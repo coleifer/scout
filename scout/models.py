@@ -17,6 +17,9 @@ from werkzeug.utils import secure_filename
 database = SqliteExtDatabase(None, regexp_function=True)
 
 
+SENTINEL = object()
+
+
 class Document(FTS5Model):
     """
     The :py:class:`Document` class contains content which should be indexed
@@ -217,12 +220,14 @@ class Index(BaseModel):
             except IntegrityError:
                 pass
 
-    def index(self, content, document=None, identifier=None, **metadata):
+    def index(self, content, document=None, identifier=SENTINEL, **metadata):
+        identifier_value = None if identifier is SENTINEL else identifier
+
         if document is None:
             document = Document.create(
                 content=content,
-                identifier=identifier)
-            if identifier is not None:
+                identifier=identifier_value)
+            if identifier_value:
                 DocLookup.replace(
                     rowid=document.rowid,
                     identifier=identifier).execute()
@@ -231,14 +236,14 @@ class Index(BaseModel):
             nrows = (Document
                      .update(
                          content=content,
-                         identifier=identifier)
-                     .where(Document.rowid== document.rowid)
+                         identifier=identifier_value)
+                     .where(Document.rowid == document.rowid)
                      .execute())
-            if identifier is not None:
+            if identifier_value:
                 DocLookup.replace(
                     rowid=document.rowid,
                     identifier=identifier).execute()
-            elif document.identifier:
+            elif identifier is not SENTINEL:
                 (DocLookup.delete()
                  .where(DocLookup.rowid == document.rowid)
                  .execute())

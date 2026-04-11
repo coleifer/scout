@@ -341,7 +341,7 @@ class DocumentView(_FileProcessingView):
                        .join(DocLookup, on=(DocLookup.rowid == Document.rowid))
                        .where(DocLookup.identifier == data['identifier'])
                        .get())
-                return self.update(data['identifier'])
+                return self.update(doc.rowid)
             except Document.DoesNotExist:
                 pass
 
