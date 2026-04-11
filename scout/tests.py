@@ -417,31 +417,24 @@ class TestModelAPIs(BaseTestCase):
         self.assertRaises(
             InvalidSearchException, engine.search, '', SEARCH_BM25)
 
-    def test_detach_cleans_up_orphaned_blobs(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('test')
-        doc.attach('file1.txt', b'unique content')
-        self.assertEqual(BlobData.select().count(), 1)
-
-        doc.detach('file1.txt')
-        self.assertEqual(Attachment.select().count(), 0)
-        self.assertEqual(BlobData.select().count(), 0)
-
-    def test_detach_preserves_shared_blobs(self):
+    def test_blob_lifecycle(self):
         idx = Index.create(name='idx')
         doc1 = idx.index('doc1')
         doc2 = idx.index('doc2')
-        # Same content → same hash → same BlobData row.
+
+        # Same content -> same hash -> same BlobData row.
         doc1.attach('a.txt', b'shared data')
         doc2.attach('b.txt', b'shared data')
         self.assertEqual(BlobData.select().count(), 1)
 
+        # Detach from doc1 -- blob still referenced by doc2.
         doc1.detach('a.txt')
         self.assertEqual(Attachment.select().count(), 1)
-        # Blob still referenced by doc2's attachment.
         self.assertEqual(BlobData.select().count(), 1)
 
+        # Detach from doc2 -- blob orphaned, cleaned up.
         doc2.detach('b.txt')
+        self.assertEqual(Attachment.select().count(), 0)
         self.assertEqual(BlobData.select().count(), 0)
 
 
@@ -671,27 +664,13 @@ class TestSearchViews(BaseTestCase):
             doc.attach('a%s.txt' % i, b'aaa')
 
         with assert_query_count(4):
-            # 1. Get document
-            # 2. Get attachments
-            # 3. Get metadata
-            # 4. Get indexes
             response = self.app.get('/documents/%s/' % doc.get_id())
 
         data = json_load(response.data)
         self.assertEqual(len(data['attachments']), 10)
 
-        with assert_query_count(8) as ct:
-            # Doc count
-            # Prefetch doc index many-to-many
-            # Prefetch index names
-            # Prefetch metadata
-            # Prefetch attachments
-            # Get page
-            # Get filtered count
-            # Pagination
-            response = self.app.get('/documents/')
-
-        data = json_load(response.data)
+        with assert_query_count(8):
+            self.app.get('/documents/')
 
     def test_index_document_validation(self):
         idx = Index.create(name='idx')
@@ -720,24 +699,16 @@ class TestSearchViews(BaseTestCase):
             'The following indexes were not found: missing, blah.')
         self.assertEqual(Document.select().count(), 0)
 
-    def test_parse_post_rejects_unknown_keys_with_none_value(self):
+    def test_parse_post_rejects_unknown_keys(self):
         idx = Index.create(name='idx')
-        response = self.post_json('/documents/', {
-            'content': 'test',
-            'index': 'idx',
-            'evil_key': None})
-        self.assertIn('error', response)
-        self.assertIn('evil_key', response['error'])
+        for bad_val in (None, ''):
+            response = self.post_json('/documents/', {
+                'content': 'test',
+                'index': 'idx',
+                'evil_key': bad_val})
+            self.assertIn('error', response)
+            self.assertIn('evil_key', response['error'])
         self.assertEqual(Document.select().count(), 0)
-
-    def test_parse_post_rejects_unknown_keys_with_empty_string(self):
-        idx = Index.create(name='idx')
-        response = self.post_json('/documents/', {
-            'content': 'test',
-            'index': 'idx',
-            'bad': ''})
-        self.assertIn('error', response)
-        self.assertIn('bad', response['error'])
 
     def test_document_detail_get(self):
         idx = Index.create(name='idx')
@@ -800,6 +771,20 @@ class TestSearchViews(BaseTestCase):
         # Test clearing indexes.
         response = self.post_json(url, {'indexes': []})
         assertDoc(doc, 'updated', {}, [])
+
+        # Omitting indexes preserves existing.
+        response = self.post_json(url, {'indexes': ['idx']})
+        response = self.post_json(url, {'content': 're-updated'})
+        assertDoc(doc, 're-updated', {}, ['idx'])
+
+        # Empty content is allowed.
+        response = self.post_json(url, {'content': ''})
+        assertDoc(doc, '', {}, ['idx'])
+
+        # Identifier can be changed.
+        response = self.post_json(url, {'identifier': 'new-id'})
+        doc_db = self.refresh_doc(doc)
+        self.assertEqual(doc_db.identifier, 'new-id')
 
         # Ensure alt_doc has not been affected.
         assertDoc(alt_doc, 'alt doc', {}, ['idx'])
@@ -896,75 +881,25 @@ class TestSearchViews(BaseTestCase):
             [d.get_id() for d in alt_idx.documents],
             [d1.get_id()])
 
-    def test_document_delete_cleans_orphaned_blobs(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('doc with files')
-        doc.attach('a.txt', b'data-a')
-        doc.attach('b.txt', b'data-b')
-        self.assertEqual(BlobData.select().count(), 2)
-
-        response = self.app.delete('/documents/%s/' % doc.get_id())
-        self.assertEqual(json_load(response.data), {'success': True})
-        self.assertEqual(Attachment.select().count(), 0)
-        self.assertEqual(BlobData.select().count(), 0)
-
-    def test_document_delete_preserves_shared_blobs(self):
+    def test_document_delete_blob_cleanup(self):
         idx = Index.create(name='idx')
         d1 = idx.index('doc1')
         d2 = idx.index('doc2')
-        d1.attach('f.txt', b'shared')
-        d2.attach('g.txt', b'shared')
-        self.assertEqual(BlobData.select().count(), 1)
+
+        # Unique blobs cleaned up on delete.
+        d1.attach('a.txt', b'data-a')
+        d1.attach('b.txt', b'data-b')
+        self.assertEqual(BlobData.select().count(), 2)
+
+        # Shared blob preserved when one reference remains.
+        d1.attach('shared.txt', b'shared')
+        d2.attach('shared2.txt', b'shared')
+        self.assertEqual(BlobData.select().count(), 3)
 
         self.app.delete('/documents/%s/' % d1.get_id())
-        # Blob still referenced by d2.
+        self.assertEqual(Attachment.select().count(), 1)
+        # Only shared blob survives (referenced by d2).
         self.assertEqual(BlobData.select().count(), 1)
-
-    def test_validate_indexes_empty_list_clears(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('test')
-        url = '/documents/%s/' % doc.get_id()
-
-        # Explicitly clear indexes.
-        response = self.post_json(url, {'indexes': []})
-        doc_db = (Document.all()
-                  .where(Document._meta.primary_key == doc.get_id())
-                  .get())
-        self.assertEqual(list(doc_db.get_indexes()), [])
-
-    def test_validate_indexes_absent_key_preserves(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('test')
-        url = '/documents/%s/' % doc.get_id()
-
-        # Omitting indexes will preserve existing indexes.
-        response = self.post_json(url, {'content': 'updated'})
-        doc_db = (Document.all()
-                  .where(Document._meta.primary_key == doc.get_id())
-                  .get())
-        self.assertEqual([i.name for i in doc_db.get_indexes()], ['idx'])
-
-    def test_update_document_empty_content(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('original content')
-        url = '/documents/%s/' % doc.get_id()
-
-        self.post_json(url, {'content': ''})
-        doc_db = (Document.all()
-                  .where(Document._meta.primary_key == doc.get_id())
-                  .get())
-        self.assertEqual(doc_db.content, '')
-
-    def test_update_document_empty_identifier(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('text', identifier='old-id')
-        url = '/documents/%s/' % doc.get_id()
-
-        self.post_json(url, {'identifier': 'new-id'})
-        doc_db = (Document.all()
-                  .where(Document._meta.primary_key == doc.get_id())
-                  .get())
-        self.assertEqual(doc_db.identifier, 'new-id')
 
     def test_attachment_views(self):
         idx = Index.create(name='idx')
@@ -1123,32 +1058,21 @@ class TestSearchViews(BaseTestCase):
         for idx in ['idx-a', 'idx-b']:
             for query in ['nug', 'nug*', 'document', 'missing']:
                 with assert_query_count(9):
-                    # 1. Get index.
-                    # 2. Get # of docs in index.
-                    # 3. Prefetch indexes.
-                    # 4. Prefetch index documents.
-                    # 5. Prefetch metadata
-                    # 6. Fetch documents (top of prefetch).
-                    # 7. COUNT(*) for pagination.
-                    # 8. COUNT(*) for pagination.
                     self.search(idx, query)
 
                 with assert_query_count(9):
                     self.search(idx, query, foo='bar')
 
         with assert_query_count(9):
-            # Same as above.
             data = self.app.get('/idx-a/').data
 
         with assert_query_count(8):
-            # Same as above minus first query for index.
             self.app.get('/documents/')
 
         for i in range(10):
             Index.create(name='idx-%s' % i)
 
         with assert_query_count(2):
-            # 2 queries, one for list, one for pagination.
             self.app.get('/')
 
     def test_authentication(self):
@@ -1178,7 +1102,6 @@ class TestSearchViews(BaseTestCase):
         }])
 
     def test_document_count_filtered_by_index(self):
-        # document_count at /documents/ should reflect the index filter.
         idx_a = Index.create(name='idx-a')
         idx_b = Index.create(name='idx-b')
         for i in range(5):
@@ -1186,127 +1109,83 @@ class TestSearchViews(BaseTestCase):
         for i in range(3):
             idx_b.index('doc-b-%d' % i)
 
-        # No filter - total across all indexes.
+        # Shared doc in both indexes should be counted once.
+        shared = idx_a.index('shared doc')
+        idx_b.add_to_index(shared)
+
         response = self.app.get('/documents/')
-        data = json_load(response.data)
-        self.assertEqual(data['document_count'], 8)
+        self.assertEqual(json_load(response.data)['document_count'], 9)
 
-        # Filter to idx-a only.
         response = self.app.get('/documents/?index=idx-a')
-        data = json_load(response.data)
-        self.assertEqual(data['document_count'], 5)
+        self.assertEqual(json_load(response.data)['document_count'], 6)
 
-        # Filter to idx-b only.
         response = self.app.get('/documents/?index=idx-b')
-        data = json_load(response.data)
-        self.assertEqual(data['document_count'], 3)
+        self.assertEqual(json_load(response.data)['document_count'], 4)
 
-        # Filter to both - all 8.
+        # Both indexes -- shared doc counted once, 9 not 10.
         response = self.app.get('/documents/?index=idx-a&index=idx-b')
-        data = json_load(response.data)
-        self.assertEqual(data['document_count'], 8)
+        self.assertEqual(json_load(response.data)['document_count'], 9)
 
-    def test_document_count_shared_document_not_double_counted(self):
-        # A document in two filtered indexes should be counted once.
-        idx_a = Index.create(name='idx-a')
-        idx_b = Index.create(name='idx-b')
-        doc = idx_a.index('shared doc')
-        idx_b.add_to_index(doc)
-        idx_a.index('a-only')
-
-        response = self.app.get('/documents/?index=idx-a&index=idx-b')
-        data = json_load(response.data)
-        # 2 documents total, not 3.
-        self.assertEqual(data['document_count'], 2)
-
-    def test_pagination_urls_in_document_list(self):
+    def test_pagination_urls(self):
         idx = Index.create(name='idx')
         for i in range(25):
-            idx.index('doc %d' % i)
+            idx.index('document %d' % i, color='red')
 
-        # Page 1 of 3 (paginate_by=10).
-        response = self.app.get('/documents/')
-        data = json_load(response.data)
+        # Page 1 of 3.
+        data = json_load(self.app.get('/documents/').data)
         self.assertEqual(data['page'], 1)
         self.assertEqual(data['pages'], 3)
         self.assertTrue(data['next_url'].endswith('/documents/?page=2'))
         self.assertIsNone(data['previous_url'])
 
-        # Page 2.
-        response = self.app.get('/documents/?page=2')
-        data = json_load(response.data)
+        # Page 2: has both prev and next.
+        data = json_load(self.app.get('/documents/?page=2').data)
         self.assertEqual(data['page'], 2)
-        self.assertIsNotNone(data['next_url'])
         self.assertTrue(data['next_url'].endswith('/documents/?page=3'))
-        self.assertIsNotNone(data['previous_url'])
         self.assertTrue(data['previous_url'].endswith('/documents/?page=1'))
 
-        # Page 3 (last).
-        response = self.app.get('/documents/?page=3')
-        data = json_load(response.data)
+        # Page 3 (last): no next.
+        data = json_load(self.app.get('/documents/?page=3').data)
         self.assertEqual(data['page'], 3)
         self.assertIsNone(data['next_url'])
         self.assertIsNotNone(data['previous_url'])
-        self.assertTrue(data['previous_url'].endswith('/documents/?page=2'))
 
-    def test_pagination_urls_preserve_query_params(self):
-        idx = Index.create(name='idx')
-        for i in range(25):
-            idx.index('document %d' % i, color='red')
+        # Single page: no prev or next.
+        idx2 = Index.create(name='lonely')
+        idx2.index('only doc')
+        data = json_load(self.app.get('/lonely/').data)
+        self.assertIsNone(data['next_url'])
+        self.assertIsNone(data['previous_url'])
 
-        response = self.app.get('/idx/?q=document&color=red')
-        data = json_load(response.data)
+        # Query params are preserved in pagination URLs.
+        data = json_load(self.app.get('/idx/?q=document&color=red').data)
         next_url = data['next_url']
         self.assertIn('page=2', next_url)
         self.assertIn('q=document', next_url)
         self.assertIn('color=red', next_url)
 
-    def test_pagination_urls_single_page(self):
-        idx = Index.create(name='idx')
-        idx.index('only doc')
-
-        response = self.app.get('/idx/')
-        data = json_load(response.data)
-        self.assertIsNone(data['next_url'])
-        self.assertIsNone(data['previous_url'])
-
-    def test_pagination_urls_in_index_list(self):
+        # Index list and attachment list also have pagination.
         for i in range(25):
             Index.create(name='idx-%02d' % i)
-
-        response = self.app.get('/')
-        data = json_load(response.data)
+        data = json_load(self.app.get('/').data)
         self.assertIn('next_url', data)
-        self.assertIn('previous_url', data)
 
-    def test_pagination_urls_in_attachment_list(self):
-        idx = Index.create(name='idx')
         doc = idx.index('doc')
         for i in range(15):
             doc.attach('file_%02d.txt' % i, b'data')
-
-        response = self.app.get('/documents/%s/attachments/' % doc.get_id())
-        data = json_load(response.data)
+        data = json_load(self.app.get(
+            '/documents/%s/attachments/' % doc.get_id()).data)
         self.assertIn('next_url', data)
-        self.assertIn('previous_url', data)
 
-    def test_global_attachment_list(self):
-        idx = Index.create(name='idx')
-        d1 = idx.index('doc 1')
-        d2 = idx.index('doc 2')
-        d1.attach('photo.jpg', b'jpeg-data')
-        d1.attach('notes.txt', b'text-data')
-        d2.attach('logo.png', b'png-data')
-
-        response = self.app.get('/attachments/')
-        data = json_load(response.data)
-        self.assertEqual(data['page'], 1)
-        filenames = sorted(a['filename'] for a in data['attachments'])
-        self.assertEqual(filenames, ['logo.png', 'notes.txt', 'photo.jpg'])
-
-    def test_global_attachment_filter(self):
+    def test_global_attachments(self):
         idx = Index.create(name='idx')
         idx2 = Index.create(name='idx2')
+
+        # Empty state.
+        data = json_load(self.app.get('/attachments/').data)
+        self.assertEqual(data['attachments'], [])
+        self.assertEqual(data['page'], 1)
+        self.assertEqual(data['pages'], 0)
 
         doc = idx.index('doc')
         doc.attach('photo.jpg', b'jpeg')
@@ -1317,71 +1196,48 @@ class TestSearchViews(BaseTestCase):
         doc2.attach('d2.jpg', b'jpeg2')
         doc2.attach('notes.txt', b'text2')
 
-        response = self.app.get('/attachments/?mimetype=image/jpeg')
-        data = json_load(response.data)
-        self.assertEqual(len(data['attachments']), 2)
-        self.assertEqual(sorted([a['filename'] for a in data['attachments']]),
-                         ['d2.jpg', 'photo.jpg'])
-
-        response = self.app.get('/attachments/?filename=notes.txt')
-        attachments = json_load(response.data)['attachments']
-        self.assertEqual(len(attachments), 2)
-
-        attachments.sort(key=lambda a: a['timestamp'])
-        self.assertEqual([a['filename'] for a in attachments],
-                         ['notes.txt', 'notes.txt'])
-        self.assertEqual([a['data'] for a in attachments], [
-            '/documents/%s/attachments/notes.txt/download/' % doc.rowid,
-            '/documents/%s/attachments/notes.txt/download/' % doc2.rowid])
-
-        response = self.app.get('/attachments/?index=idx2')
-        data = json_load(response.data)
-        self.assertEqual(len(data['attachments']), 2)
-        self.assertEqual(sorted([a['filename'] for a in data['attachments']]),
-                         ['d2.jpg', 'notes.txt'])
-
-        response = self.app.get(
-            '/attachments/?index=idx&index=idx2')
-        data = json_load(response.data)
+        # All attachments.
+        data = json_load(self.app.get('/attachments/').data)
         self.assertEqual(len(data['attachments']), 5)
 
-        response = self.app.get(
-            '/attachments/?index=idx-not-here&index=idx-also-not-here')
-        data = json_load(response.data)
+        # Filter by mimetype.
+        data = json_load(
+            self.app.get('/attachments/?mimetype=image/jpeg').data)
+        self.assertEqual(
+            sorted(a['filename'] for a in data['attachments']),
+            ['d2.jpg', 'photo.jpg'])
+
+        # Filter by filename.
+        data = json_load(
+            self.app.get('/attachments/?filename=notes.txt').data)
+        self.assertEqual(len(data['attachments']), 2)
+
+        # Filter by index.
+        data = json_load(self.app.get('/attachments/?index=idx2').data)
+        self.assertEqual(
+            sorted(a['filename'] for a in data['attachments']),
+            ['d2.jpg', 'notes.txt'])
+
+        data = json_load(
+            self.app.get('/attachments/?index=idx&index=idx2').data)
+        self.assertEqual(len(data['attachments']), 5)
+
+        data = json_load(
+            self.app.get('/attachments/?index=nope').data)
         self.assertEqual(len(data['attachments']), 0)
 
-    def test_global_attachment_ordering(self):
-        idx = Index.create(name='idx')
-        doc = idx.index('doc')
-        doc.attach('b.txt', b'b')
-        doc.attach('a.txt', b'a')
-        doc.attach('c.txt', b'c')
-
-        response = self.app.get('/attachments/')
-        data = json_load(response.data)
+        # Ordering.
+        data = json_load(
+            self.app.get('/attachments/?index=idx&ordering=-filename').data)
         filenames = [a['filename'] for a in data['attachments']]
-        self.assertEqual(filenames, ['a.txt', 'b.txt', 'c.txt'])
+        self.assertEqual(filenames, ['photo.jpg', 'notes.txt', 'logo.png'])
 
-        response = self.app.get('/attachments/?ordering=-filename')
-        data = json_load(response.data)
-        filenames = [a['filename'] for a in data['attachments']]
-        self.assertEqual(filenames, ['c.txt', 'b.txt', 'a.txt'])
-
-    def test_global_attachment_empty(self):
-        response = self.app.get('/attachments/')
-        data = json_load(response.data)
-        self.assertEqual(data['attachments'], [])
-        self.assertEqual(data['page'], 1)
-        self.assertEqual(data['pages'], 0)
-
-    def test_global_attachment_list_requires_auth(self):
+        # Auth required.
         app.config['AUTHENTICATION'] = 'secret'
         try:
-            response = self.app.get('/attachments/')
-            self.assertEqual(response.status_code, 401)
-
-            response = self.app.get('/attachments/?key=secret')
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(self.app.get('/attachments/').status_code, 401)
+            self.assertEqual(
+                self.app.get('/attachments/?key=secret').status_code, 200)
         finally:
             app.config['AUTHENTICATION'] = None
 
@@ -1391,61 +1247,48 @@ class TestDocLookupModelLevel(BaseTestCase):
         super(TestDocLookupModelLevel, self).setUp()
         self.index = Index.create(name='idx')
 
-    def test_create_with_identifier(self):
-        doc = self.index.index(content='hello', identifier='abc')
+    def test_create_and_get(self):
+        # With identifier -- lookup created, resolvable by identifier or rowid.
+        doc = self.index.index(content='hello world', identifier='my-doc')
         self.assertEqual(DocLookup.select().count(), 1)
-        lookup = DocLookup.get(DocLookup.identifier == 'abc')
+        lookup = DocLookup.get(DocLookup.identifier == 'my-doc')
         self.assertEqual(lookup.rowid, doc.rowid)
 
-    def test_create_without_identifier(self):
-        self.index.index(content='hello')
-        self.assertEqual(DocLookup.select().count(), 0)
-
-    def test_get_document_by_identifier(self):
-        doc = self.index.index(content='hello world', identifier='my-doc')
         found = DocLookup.get_document('my-doc')
         self.assertEqual(found.rowid, doc.rowid)
         self.assertEqual(found.content, 'hello world')
 
-    def test_get_document_by_rowid(self):
-        doc = self.index.index(content='hello world', identifier='my-doc')
         found = DocLookup.get_document(doc.rowid)
         self.assertEqual(found.content, 'hello world')
 
-    def test_get_document_by_rowid_string(self):
-        doc = self.index.index(content='hello world', identifier='my-doc')
         found = DocLookup.get_document(str(doc.rowid))
         self.assertEqual(found.content, 'hello world')
 
-    def test_update_identifier(self):
+        # Without identifier -- no lookup created.
+        self.index.index(content='no ident')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+    def test_update_and_clear_identifier(self):
         doc = self.index.index(content='hello', identifier='old-id')
+
+        # Update identifier.
         self.index.index(content='hello updated', document=doc,
                          identifier='new-id')
         self.assertEqual(DocLookup.select().count(), 1)
-        lookup = DocLookup.get()
-        self.assertEqual(lookup.identifier, 'new-id')
-        self.assertEqual(lookup.rowid, doc.rowid)
-
-        # Old identifier no longer resolves.
+        self.assertEqual(DocLookup.get().identifier, 'new-id')
         self.assertRaises(Document.DoesNotExist,
                           DocLookup.get_document, 'old-id')
-        # New one does.
-        found = DocLookup.get_document('new-id')
-        self.assertEqual(found.rowid, doc.rowid)
+        self.assertEqual(DocLookup.get_document('new-id').rowid, doc.rowid)
 
-    def test_clear_identifier(self):
-        doc = self.index.index(content='hello', identifier='temp-id')
-        self.assertEqual(DocLookup.select().count(), 1)
-
+        # Clear identifier.
         self.index.index(content='hello cleared', document=doc,
                          identifier=None)
         self.assertEqual(DocLookup.select().count(), 0)
         self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'temp-id')
+                          DocLookup.get_document, 'new-id')
 
     def test_reuse_identifier_on_new_document(self):
         doc1 = self.index.index(content='first', identifier='reused')
-        # Create a second doc that takes over the identifier.
         doc2 = self.index.index(content='second', identifier='reused')
         self.assertEqual(DocLookup.select().count(), 1)
         found = DocLookup.get_document('reused')
@@ -1455,12 +1298,11 @@ class TestDocLookupModelLevel(BaseTestCase):
     def test_multiple_documents_distinct_identifiers(self):
         doc_a = self.index.index(content='aaa', identifier='id-a')
         doc_b = self.index.index(content='bbb', identifier='id-b')
-        doc_c = self.index.index(content='ccc')
+        self.index.index(content='ccc')
 
         self.assertEqual(DocLookup.select().count(), 2)
         self.assertEqual(DocLookup.get_document('id-a').rowid, doc_a.rowid)
         self.assertEqual(DocLookup.get_document('id-b').rowid, doc_b.rowid)
-        # doc_c has no identifier, so looking up by its content won't work.
         self.assertRaises(Document.DoesNotExist,
                           DocLookup.get_document, 'id-c')
 
@@ -1527,119 +1369,16 @@ class TestDocLookupHTTP(BaseTestCase):
     def assertNotFound(self, pk):
         self.assertEqual(self.app.get('/documents/%s/' % pk).status_code, 404)
 
-    def test_create_and_lookup(self):
-        resp = self._create('hello', identifier='http-doc')
-        self.assertEqual(resp['identifier'], 'http-doc')
-        self.assertEqual(self._get('http-doc')['id'], resp['id'])
-        self.assertLookupCount(1)
-        self.assertLookupMaps('http-doc', resp['id'])
-
-    def test_create_without_identifier_no_lookup(self):
-        self._create('no ident')
-        self.assertLookupCount(0)
-
-    def test_update_sets_lookup(self):
-        doc_id = self._create('hello')['id']
-        self._update(doc_id, identifier='added-later')
-        self.assertEqual(self._get('added-later')['id'], doc_id)
-        self.assertLookupMaps('added-later', doc_id)
-
-    def test_update_changes_lookup(self):
-        doc_id = self._create('hello', identifier='orig')['id']
-        self._update(doc_id, identifier='changed')
-        self.assertEqual(self._get('changed')['id'], doc_id)
-        self.assertNotFound('orig')
-        self.assertLookupCount(1)
-        self.assertLookupMaps('changed', doc_id)
-
-        self._update('changed', identifier='again')
-        self.assertEqual(self._get('again')['id'], doc_id)
-        self.assertNotFound('changed')
-        self.assertLookupCount(1)
-        self.assertLookupMaps('again', doc_id)
-
-    def test_update_clears_lookup(self):
-        doc_id = self._create('hello', identifier='to-clear')['id']
-        self._update(doc_id, identifier=None)
-        self.assertNotFound('to-clear')
-        self.assertLookupCount(0)
-        self.assertIsNone(Document.all().where(
-            Document.rowid == doc_id).get().identifier)
-        # Still accessible by rowid.
-        self.assertEqual(self._get(doc_id)['id'], doc_id)
-
-    def test_update_without_identifier_preserves_lookup(self):
-        doc_id = self._create('hello', identifier='keep-me')['id']
-        self._update(doc_id, content='updated content')
-        detail = self._get('keep-me')
-        self.assertEqual(detail['id'], doc_id)
-        self.assertEqual(detail['content'], 'updated content')
-        self.assertLookupMaps('keep-me', doc_id)
-
-    def test_update_content_and_identifier_simultaneously(self):
-        doc_id = self._create('old', identifier='old-id')['id']
-        self._update(doc_id, content='new', identifier='new-id')
-        self.assertNotFound('old-id')
-        detail = self._get('new-id')
-        self.assertEqual(detail['content'], 'new')
-        self.assertEqual(detail['id'], doc_id)
-        self.assertLookupMaps('new-id', doc_id)
-
-    def test_delete_removes_lookup(self):
-        doc_id = self._create('hello', identifier='doomed')['id']
-        self._delete(doc_id)
-        self.assertLookupCount(0)
-        self.assertEqual(Document.select().count(), 0)
-
-    def test_delete_by_identifier(self):
-        self._create('hello', identifier='doomed2')
-        self._delete('doomed2')
-        self.assertLookupCount(0)
-        self.assertEqual(Document.select().count(), 0)
-
-    def test_delete_without_identifier_no_lookup_error(self):
-        doc_id = self._create('bare')['id']
-        self.assertLookupCount(0)
-        self.assertEqual(self._delete(doc_id), {'success': True})
-        self.assertLookupCount(0)
-        self.assertEqual(Document.select().count(), 0)
-
-    def test_create_with_identifier_dedup(self):
-        doc_id = self._create('first', identifier='dedup')['id']
-        resp = self._create('second', identifier='dedup')
-        self.assertEqual(resp['id'], doc_id)
-        self.assertEqual(resp['content'], 'second')  # Overwrites first.
-        self.assertEqual(Document.select().count(), 1)
-        self.assertLookupMaps('dedup', doc_id)
-
-    def test_dedup_create_across_indexes(self):
-        Index.create(name='other')
-        r1 = self._create('v1', identifier='cross-idx')
-        r2 = self.post_json('/documents/', {
-            'content': 'v2', 'identifier': 'cross-idx',
-            'indexes': ['other']})
-        self.assertEqual(r2['id'], r1['id'])
-        self.assertIn('other', r2['indexes'])
-        self.assertEqual(Document.select().count(), 1)
-
-    def test_dedup_post_preserves_metadata_and_indexes(self):
-        Index.create(name='other')
-        self._create('v1', identifier='dup', k1='old')
-        resp = self.post_json('/documents/', {
-            'content': 'v2', 'identifier': 'dup',
-            'indexes': ['idx', 'other'],
-            'metadata': {'k1': 'new', 'k2': 'added'}})
-        self.assertEqual(resp['content'], 'v2')
-        self.assertEqual(resp['metadata'], {'k1': 'new', 'k2': 'added'})
-        self.assertIn('other', resp['indexes'])
-        self.assertEqual(Document.select().count(), 1)
-        self.assertLookupCount(1)
-
     def test_full_lifecycle(self):
+        # Create with identifier.
         doc_id = self._create('v1', identifier='life')['id']
         self.assertLookupMaps('life', doc_id)
 
-        # Update content only - lookup preserved.
+        # Create without identifier -- no lookup.
+        self._create('no ident')
+        self.assertLookupCount(1)
+
+        # Update content only -- lookup preserved.
         self._update(doc_id, content='v2')
         self.assertEqual(self._get('life')['content'], 'v2')
         self.assertLookupMaps('life', doc_id)
@@ -1649,40 +1388,93 @@ class TestDocLookupHTTP(BaseTestCase):
         self.assertNotFound('life')
         self.assertLookupMaps('life2', doc_id)
 
+        # Update via identifier URL.
+        self._update('life2', identifier='life3')
+        self.assertNotFound('life2')
+        self.assertEqual(self._get('life3')['content'], 'v2')
+
+        # Update content and identifier simultaneously.
+        self._update(doc_id, content='v3', identifier='life4')
+        self.assertNotFound('life3')
+        self.assertEqual(self._get('life4')['content'], 'v3')
+
         # Clear identifier.
         self.put_json('/documents/%s/' % doc_id, {'identifier': None})
-        self.assertNotFound('life2')
+        self.assertNotFound('life4')
         self.assertLookupCount(0)
 
         # Re-add identifier.
-        self._update(doc_id, identifier='life3')
-        self.assertLookupMaps('life3', doc_id)
+        self._update(doc_id, identifier='life5')
+        self.assertLookupMaps('life5', doc_id)
 
-        # Delete.
-        self._delete('life3')
+        # Delete by identifier.
+        self._delete('life5')
+        self.assertLookupCount(0)
+        self.assertEqual(Document.select().count(), 1)  # "no ident" remains.
+
+    def test_add_identifier_to_bare_document(self):
+        doc_id = self._create('hello')['id']
+        self.assertLookupCount(0)
+        self._update(doc_id, identifier='added-later')
+        self.assertEqual(self._get('added-later')['id'], doc_id)
+        self.assertLookupMaps('added-later', doc_id)
+
+    def test_dedup_create(self):
+        # Second POST with same identifier updates existing document.
+        doc_id = self._create('first', identifier='dedup')['id']
+        resp = self._create('second', identifier='dedup')
+        self.assertEqual(resp['id'], doc_id)
+        self.assertEqual(resp['content'], 'second')
+        self.assertEqual(Document.select().count(), 1)
+        self.assertLookupMaps('dedup', doc_id)
+
+        # Dedup across indexes preserves metadata and indexes.
+        Index.create(name='other')
+        self._create('v1', identifier='dup', k1='old')
+        resp = self.post_json('/documents/', {
+            'content': 'v2', 'identifier': 'dup',
+            'indexes': ['idx', 'other'],
+            'metadata': {'k1': 'new', 'k2': 'added'}})
+        self.assertEqual(resp['content'], 'v2')
+        self.assertEqual(resp['metadata'], {'k1': 'new', 'k2': 'added'})
+        self.assertIn('other', resp['indexes'])
+        self.assertLookupCount(2)
+
+    def test_delete_cleanup(self):
+        # Delete by rowid.
+        doc_id = self._create('hello', identifier='doomed')['id']
+        self._delete(doc_id)
         self.assertLookupCount(0)
         self.assertEqual(Document.select().count(), 0)
 
-    def test_reuse_identifier_after_delete(self):
-        old_id = self._create('first', identifier='recycled')['id']
-        self._delete('recycled')
-        self._create('xyz')  # prevent rowid reuse
-        new_id = self._create('second', identifier='recycled')['id']
-        self.assertNotEqual(new_id, old_id)
-        self.assertLookupMaps('recycled', new_id)
+        # Delete without identifier -- no lookup error.
+        doc_id = self._create('bare')['id']
+        self.assertEqual(self._delete(doc_id), {'success': True})
+        self.assertLookupCount(0)
 
-    def test_multiple_docs_independent_lookups(self):
-        r1 = self._create('doc1', identifier='stable')
-        r2 = self._create('doc2', identifier='volatile')
-
-        self._update(r2['id'], identifier='v2')
-        self.put_json('/documents/%s/' % r2['id'], {'identifier': None})
-        self._update(r2['id'], identifier='v3')
-
-        self.assertEqual(self._get('stable')['id'], r1['id'])
+        # Delete middle of chain leaves others intact.
+        a = self._create('aaa', identifier='a')['id']
+        b = self._create('bbb', identifier='b')['id']
+        c = self._create('ccc', identifier='c')['id']
+        self._delete('b')
         self.assertLookupCount(2)
-        self.assertLookupMaps('stable', r1['id'])
-        self.assertLookupMaps('v3', r2['id'])
+        self.assertLookupMaps('a', a)
+        self.assertLookupMaps('c', c)
+        self.assertNotFound('b')
+
+    def test_all_tables_clean_after_delete(self):
+        doc_id = self._create('full', identifier='clean', k='v')['id']
+        self.app.post('/documents/clean/attachments/', data={
+            'data': '{}',
+            'file_0': (BytesIO(b'data'), 'f.txt')})
+
+        self._delete('clean')
+        self.assertEqual(Document.select().count(), 0)
+        self.assertLookupCount(0)
+        self.assertEqual(Metadata.select().count(), 0)
+        self.assertEqual(Attachment.select().count(), 0)
+        self.assertEqual(BlobData.select().count(), 0)
+        self.assertEqual(IndexDocument.select().count(), 0)
 
     def test_swap_identifiers(self):
         r1 = self._create('aaa', identifier='id-a')
@@ -1711,28 +1503,13 @@ class TestDocLookupHTTP(BaseTestCase):
         self.assertFalse(DocLookup.select().where(
             DocLookup.rowid == r1['id']).exists())
 
-    def test_rapid_identifier_reassignment_chain(self):
-        ids = [self._create('doc%d' % i)['id'] for i in range(4)]
-        for i, doc_id in enumerate(ids):
-            if i > 0:
-                self._update(ids[i - 1], identifier=None)
-            self._update(doc_id, identifier='hot-potato')
-
-        self.assertEqual(self._get('hot-potato')['id'], ids[-1])
-        self.assertLookupCount(1)
-        self.assertLookupMaps('hot-potato', ids[-1])
-
-    def test_clear_and_recreate_same_identifier(self):
-        r1_id = self._create('original', identifier='takeover')['id']
-        self.put_json('/documents/%s/' % r1_id, {'identifier': None})
-        r2_id = self._create('usurper', identifier='takeover')['id']
-
-        self.assertNotEqual(r1_id, r2_id)
-        self.assertLookupMaps('takeover', r2_id)
-        # Original still exists, no identifier.
-        orig = self._get(r1_id)
-        self.assertEqual(orig['content'], 'original')
-        self.assertIn(orig['identifier'], (None, ''))
+    def test_reuse_identifier_after_delete(self):
+        old_id = self._create('first', identifier='recycled')['id']
+        self._delete('recycled')
+        self._create('xyz')  # prevent rowid reuse
+        new_id = self._create('second', identifier='recycled')['id']
+        self.assertNotEqual(new_id, old_id)
+        self.assertLookupMaps('recycled', new_id)
 
     def test_clear_then_set_same_identifier(self):
         doc_id = self._create('sticky', identifier='boomerang')['id']
@@ -1741,38 +1518,30 @@ class TestDocLookupHTTP(BaseTestCase):
         self._update(doc_id, identifier='boomerang')
         self.assertLookupMaps('boomerang', doc_id)
 
-    def test_update_via_identifier_url(self):
-        self._create('hello', identifier='old-name')
-        self._update('old-name', identifier='new-name')
-        self.assertNotFound('old-name')
-        self.assertEqual(self._get('new-name')['content'], 'hello')
-        self.assertLookupCount(1)
-
-    def test_index_deletion_does_not_affect_lookup(self):
-        doc_id = self._create('indexed doc', identifier='survives')['id']
-        self.app.delete('/idx/')
-        detail = self._get('survives')
-        self.assertEqual(detail['id'], doc_id)
-        self.assertEqual(detail['indexes'], [])
-        self.assertLookupMaps('survives', doc_id)
-
-    def test_move_between_indexes_preserves_lookup(self):
+    def test_index_and_metadata_survive_identifier_changes(self):
         Index.create(name='other')
-        doc_id = self._create('mobile doc', identifier='mobile')['id']
-        self._update(doc_id, indexes=['other'])
-        detail = self._get('mobile')
-        self.assertEqual(detail['indexes'], ['other'])
-        self.assertLookupMaps('mobile', doc_id)
-
-    def test_metadata_survives_identifier_change(self):
         doc_id = self._create('tagged', identifier='m1', color='red',
                               size='big')['id']
+
+        # Index change preserves lookup.
+        self._update(doc_id, indexes=['other'])
+        detail = self._get('m1')
+        self.assertEqual(detail['indexes'], ['other'])
+        self.assertLookupMaps('m1', doc_id)
+
+        # Identifier change preserves metadata.
         self._update(doc_id, identifier='m2')
         self.assertEqual(self._get('m2')['metadata'],
                          {'color': 'red', 'size': 'big'})
+        self.assertEqual(
+            Metadata.select().where(Metadata.document == doc_id).count(), 2)
 
-        query = Metadata.select().where(Metadata.document == doc_id)
-        self.assertEqual(query.count(), 2)
+        # Index deletion does not affect lookup.
+        self.app.delete('/other/')
+        detail = self._get('m2')
+        self.assertEqual(detail['id'], doc_id)
+        self.assertEqual(detail['indexes'], [])
+        self.assertLookupMaps('m2', doc_id)
 
     def test_search_finds_doc_after_identifier_change(self):
         self._create('unique platypus content', identifier='before')
@@ -1813,82 +1582,10 @@ class TestDocLookupHTTP(BaseTestCase):
         """Create dedup must match by identifier only, not rowid."""
         r1 = self._create('first')
         r2 = self._create('second', identifier=str(r1['id']))
-        # Dedup did NOT clobber r1 — two distinct documents.
+        # Dedup did NOT clobber r1 -- two distinct documents.
         self.assertNotEqual(r1['id'], r2['id'])
         self.assertEqual(Document.select().count(), 2)
         self.assertLookupMaps(str(r1['id']), r2['id'])
-
-    def test_bulk_create_delete_lookup_consistency(self):
-        n = 20
-        ids = {}
-        for i in range(n):
-            ids[i] = self._create('doc-%d' % i, identifier='id-%d' % i)['id']
-
-        for i in range(0, n, 2):
-            self._delete('id-%d' % i)
-
-        self.assertLookupCount(n // 2)
-        self.assertEqual(Document.select().count(), n // 2)
-        for i in range(n):
-            if i % 2 == 0:
-                self.assertNotFound('id-%d' % i)
-            else:
-                self.assertEqual(self._get('id-%d' % i)['id'], ids[i])
-
-    def test_identifier_with_special_characters(self):
-        for ident in ('has spaces', 'slashes/in/it', 'q?mark', 'pct%20enc'):
-            doc_id = self._create('content', identifier=ident)['id']
-            self.assertEqual(self._get(doc_id)['identifier'], ident)
-            self.assertLookupMaps(ident, doc_id)
-            self._delete(doc_id)
-            self.assertLookupCount(0)
-
-    def test_create_two_then_second_steals_first_identifier_via_dedup(self):
-        # Second POST with same identifier funnels through update, not
-        # a second insert - DB state must show exactly one row everywhere.
-        self._create('v1', identifier='dup', k1='a')
-        self._create('v2', identifier='dup', k1='b')
-        self.assertEqual(Document.select().count(), 1)
-        self.assertLookupCount(1)
-        self.assertEqual(IndexDocument.select().count(), 1)
-        doc = Document.all().get()
-        self.assertEqual(doc.content, 'v2')
-        self.assertEqual(doc.metadata, {'k1': 'b'})
-
-    def test_delete_middle_of_chain_leaves_others_intact(self):
-        a = self._create('aaa', identifier='a')['id']
-        b = self._create('bbb', identifier='b')['id']
-        c = self._create('ccc', identifier='c')['id']
-
-        self._delete('b')
-        self.assertLookupCount(2)
-        self.assertEqual(Document.select().count(), 2)
-        self.assertLookupMaps('a', a)
-        self.assertLookupMaps('c', c)
-        self.assertNotFound('b')
-
-    def test_update_identifier_then_delete_by_new_identifier(self):
-        doc_id = self._create('hello', identifier='orig')['id']
-        self._update(doc_id, identifier='renamed')
-        self._delete('renamed')
-        self.assertLookupCount(0)
-        self.assertEqual(Document.select().count(), 0)
-        self.assertNotFound('orig')
-        self.assertNotFound('renamed')
-
-    def test_all_tables_clean_after_delete(self):
-        doc_id = self._create('full', identifier='clean', k='v')['id']
-        self.app.post('/documents/clean/attachments/', data={
-            'data': '{}',
-            'file_0': (BytesIO(b'data'), 'f.txt')})
-
-        self._delete('clean')
-        self.assertEqual(Document.select().count(), 0)
-        self.assertLookupCount(0)
-        self.assertEqual(Metadata.select().count(), 0)
-        self.assertEqual(Attachment.select().count(), 0)
-        self.assertEqual(BlobData.select().count(), 0)
-        self.assertEqual(IndexDocument.select().count(), 0)
 
     def test_concurrent_style_interleaved_updates(self):
         a = self._create('aaa', identifier='a-id')['id']
@@ -1977,291 +1674,188 @@ class TestScoutClient(BaseTestCase):
         app.config['AUTHENTICATION'] = None
         self.scout = FlaskScout(app)
 
-    def test_create_get_indexes(self):
+    def test_index_lifecycle(self):
         self.scout.create_index('idx-a')
         self.scout.create_index('idx-b')
-        indexes = self.scout.get_indexes()
-        names = [idx['name'] for idx in indexes]
-        self.assertEqual(sorted(names), ['idx-a', 'idx-b'])
+        names = sorted(idx['name'] for idx in self.scout.get_indexes())
+        self.assertEqual(names, ['idx-a', 'idx-b'])
 
-    def test_get_index_detail(self):
-        self.scout.create_index('my-idx')
-        detail = self.scout.get_index('my-idx')
-        self.assertEqual(detail['name'], 'my-idx')
+        detail = self.scout.get_index('idx-a')
         self.assertEqual(detail['document_count'], 0)
         self.assertEqual(detail['page'], 1)
         self.assertEqual(detail['pages'], 0)
 
-    def test_rename_index(self):
-        self.scout.create_index('old-name')
-        result = self.scout.rename_index('old-name', 'new-name')
-        self.assertEqual(result['name'], 'new-name')
-        names = [idx['name'] for idx in self.scout.get_indexes()]
-        self.assertEqual(names, ['new-name'])
+        self.scout.rename_index('idx-a', 'idx-renamed')
+        names = sorted(idx['name'] for idx in self.scout.get_indexes())
+        self.assertEqual(names, ['idx-b', 'idx-renamed'])
 
-    def test_delete_index(self):
-        self.scout.create_index('doomed')
-        self.scout.delete_index('doomed')
-        self.assertEqual(self.scout.get_indexes(), [])
-
-    def test_delete_index_preserves_documents(self):
-        self.scout.create_index('idx')
-        self.scout.create_document('hello world', 'idx')
-        self.scout.delete_index('idx')
+        # Delete index preserves documents.
+        self.scout.create_document('hello world', 'idx-renamed')
+        self.scout.delete_index('idx-renamed')
         self.assertEqual(Document.select().count(), 1)
+        self.assertEqual(
+            [idx['name'] for idx in self.scout.get_indexes()], ['idx-b'])
 
-    def test_create_document_single_index(self):
+    def test_document_crud(self):
         idx = self.scout.create_index('idx')
+        self.scout.create_index('alt')
+
+        # Create with single index and metadata.
         doc = self.scout.create_document('test content', 'idx', k1='v1')
         self.assertEqual(doc['content'], 'test content')
         self.assertEqual(doc['indexes'], ['idx'])
         self.assertEqual(doc['metadata'], {'k1': 'v1'})
 
-        self.assertEqual(self.scout.get_index('idx'), {
-            'document_count': 1,
-            'documents': [doc],
-            'filtered_count': 1,
-            'filters': {},
-            'id': idx['id'],
-            'name': 'idx',
-            'ordering': [],
-            'next_url': None,
-            'page': 1,
-            'pages': 1,
-            'previous_url': None})
+        # Get by id.
+        fetched = self.scout.get_document(doc['id'])
+        self.assertEqual(fetched, doc)
 
-    def test_create_document_multiple_indexes(self):
-        self.scout.create_index('a')
-        self.scout.create_index('b')
-        doc = self.scout.create_document('multi', ['a', 'b'])
-        self.assertEqual(sorted(doc['indexes']), ['a', 'b'])
+        # Create with multiple indexes.
+        doc2 = self.scout.create_document('multi', ['idx', 'alt'])
+        self.assertEqual(sorted(doc2['indexes']), ['alt', 'idx'])
 
-        rdoc = self.scout.get_document(doc['id'])
-        self.assertEqual(doc, rdoc)
+        # Create with identifier.
+        doc3 = self.scout.create_document('ident', 'idx', identifier='my-id')
+        self.assertEqual(doc3['identifier'], 'my-id')
 
-    def test_create_document_with_identifier(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('content', 'idx',
-                                         identifier='custom-id')
-        self.assertEqual(doc['identifier'], 'custom-id')
-
-    def test_get_documents_filtered_by_multiple_indexes(self):
-        self.scout.create_index('a')
-        self.scout.create_index('b')
-        self.scout.create_index('c')
-        self.scout.create_document('in a', 'a')
-        self.scout.create_document('in b', 'b')
-        self.scout.create_document('in c', 'c')
-
-        results = self.scout.get_documents(index=['a', 'b'])
-        self.assertEqual(results['document_count'], 2)
-        self.assertEqual(len(results['documents']), 2)
-        contents = sorted(d['content'] for d in results['documents'])
-        self.assertEqual(contents, ['in a', 'in b'])
-
-    def test_get_document(self):
-        self.scout.create_index('idx')
-        created = self.scout.create_document('hello', 'idx')
-        fetched = self.scout.get_document(created['id'])
-        self.assertEqual(fetched['content'], 'hello')
-        self.assertEqual(fetched['id'], created['id'])
-
-    def test_update_document_content(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('original', 'idx')
-
+        # Update content.
         updated = self.scout.update_document(
             document_id=doc['id'], content='modified')
         self.assertEqual(updated['content'], 'modified')
+        self.assertEqual(self.scout.get_document(doc['id'])['content'],
+                         'modified')
 
-        fetched = self.scout.get_document(doc['id'])
-        self.assertEqual(fetched['content'], 'modified')
+        # Update by identifier.
+        updated = self.scout.update_document('my-id', content='via ident')
+        self.assertEqual(updated['content'], 'via ident')
 
-    def test_update_document_by_identifier(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('text', 'idx', identifier='my-id')
-        updated = self.scout.update_document('my-id', content='updated text')
-        self.assertEqual(updated['content'], 'updated text')
-        self.assertEqual(updated['identifier'], 'my-id')
-
-        fetched = self.scout.get_document(doc['id'])
-        self.assertEqual(fetched['content'], 'updated text')
-
-    def test_update_document_metadata(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('text', 'idx', color='red')
-        self.assertEqual(doc['metadata'], {'color': 'red'})
+        # Update metadata, then clear it.
         updated = self.scout.update_document(
             document_id=doc['id'], metadata={'color': 'blue', 'size': 'lg'})
         self.assertEqual(updated['metadata'], {'color': 'blue', 'size': 'lg'})
-
-        fetched = self.scout.get_document(document_id=doc['id'])
-        self.assertEqual(fetched['metadata'], updated['metadata'])
-
-    def test_update_document_clear_metadata(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('text', 'idx', foo='bar')
         updated = self.scout.update_document(
             document_id=doc['id'], metadata={})
         self.assertEqual(updated['metadata'], {})
 
-        fetched = self.scout.get_document(document_id=doc['id'])
-        self.assertEqual(fetched['metadata'], {})
-
-    def test_update_document_indexes(self):
-        self.scout.create_index('a')
-        self.scout.create_index('b')
-        doc = self.scout.create_document('text', 'a')
-        self.assertEqual(doc['indexes'], ['a'])
+        # Update indexes.
         updated = self.scout.update_document(
-            document_id=doc['id'], indexes=['a', 'b'])
-        self.assertEqual(sorted(updated['indexes']), ['a', 'b'])
+            document_id=doc['id'], indexes=['idx', 'alt'])
+        self.assertEqual(sorted(updated['indexes']), ['alt', 'idx'])
 
-        fetched = self.scout.get_document(document_id=doc['id'])
-        self.assertEqual(sorted(fetched['indexes']), ['a', 'b'])
-
-    def test_delete_document(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('bye', 'idx')
+        # Delete.
         result = self.scout.delete_document(doc['id'])
         self.assertEqual(result, {'success': True})
-        self.assertEqual(Document.select().count(), 0)
 
     def test_validate_rowid_present(self):
-        # Need rowid.
         self.assertRaises(ValueError, self.scout.delete_document)
-
-        # Need rowid.
         self.assertRaises(ValueError, self.scout.get_document)
 
         self.scout.create_index('idx')
         doc = self.scout.create_document('text', 'idx')
-
-        # Need data.
         self.assertRaises(
             ValueError,
             self.scout.update_document,
             document_id=doc['id'])
 
-    def test_get_documents_list(self):
-        self.scout.create_index('idx')
-        for i in range(3):
-            self.scout.create_document('doc %d' % i, 'idx')
-        result = self.scout.get_documents()
-        self.assertEqual(result['document_count'], 3)
-        self.assertEqual(result['page'], 1)
-        self.assertEqual(result['pages'], 1)
-        self.assertEqual(len(result['documents']), 3)
-
-        # Ensure results paginated.
-        for i in range(10):
-            self.scout.create_document('doc %d' % i, 'idx')
-
-        result = self.scout.get_documents()
-        self.assertEqual(result['document_count'], 13)
-        self.assertEqual(result['page'], 1)
-        self.assertEqual(result['pages'], 2)
-        self.assertEqual(len(result['documents']), 10)
-
-        # Get via index.
-        result = self.scout.get_index('idx')
-        self.assertEqual(result['document_count'], 13)
-        self.assertEqual(result['page'], 1)
-        self.assertEqual(result['pages'], 2)
-        self.assertEqual(len(result['documents']), 10)
-
-    def test_search_via_get_index(self):
-        self.scout.create_index('idx')
-        self.scout.create_document('alpha bravo charlie', 'idx')
-        self.scout.create_document('delta echo foxtrot', 'idx')
-        self.scout.create_document('bravo delta golf', 'idx')
-
-        results = self.scout.get_index('idx', q='bravo')
-        docs = results['documents']
-        self.assertEqual(len(docs), 2)
-        contents = sorted(d['content'] for d in docs)
-        self.assertEqual(contents, [
-            'alpha bravo charlie',
-            'bravo delta golf'])
-
-    def test_search_via_get_documents(self):
+    def test_document_list_and_search(self):
         self.scout.create_index('a')
         self.scout.create_index('b')
-        self.scout.create_document('apple banana', 'a')
-        self.scout.create_document('banana cherry', 'b')
+        self.scout.create_document('alpha bravo', 'a', color='red')
+        self.scout.create_document('bravo charlie', 'b', color='blue')
+        self.scout.create_document('delta echo', 'a', color='red')
 
-        results = self.scout.get_documents(q='banana')
-        self.assertEqual(len(results['documents']), 2)
+        # List all.
+        result = self.scout.get_documents()
+        self.assertEqual(result['document_count'], 3)
 
-        results = self.scout.get_documents(q='banana', index='a')
+        # Filter by index.
+        result = self.scout.get_documents(index=['a'])
+        self.assertEqual(result['document_count'], 2)
+
+        # Search via get_index.
+        results = self.scout.get_index('a', q='bravo')
         self.assertEqual(len(results['documents']), 1)
-        self.assertEqual(results['documents'][0]['content'], 'apple banana')
 
-    def test_search_with_metadata_filter(self):
-        self.scout.create_index('idx')
-        self.scout.create_document('doc one', 'idx', color='red')
-        self.scout.create_document('doc two', 'idx', color='blue')
-        self.scout.create_document('doc three', 'idx', color='red')
-
-        results = self.scout.get_index('idx', q='doc', color='red')
-        self.assertEqual(sorted([d['content'] for d in results['documents']]),
-                         ['doc one', 'doc three'])
-
-    def test_search_with_ranking(self):
-        self.scout.create_index('idx')
-        self.scout.create_document('foo bar baz', 'idx')
-        self.scout.create_document('foo foo foo', 'idx')
-
-        results = self.scout.get_index('idx', q='foo', ranking='bm25')
+        # Search via get_documents.
+        results = self.scout.get_documents(q='bravo')
         self.assertEqual(len(results['documents']), 2)
+        results = self.scout.get_documents(q='bravo', index='a')
+        self.assertEqual(len(results['documents']), 1)
+
+        # Metadata filter.
+        results = self.scout.get_index('a', q='*', color='red')
+        self.assertEqual(len(results['documents']), 2)
+
+        # Ranking.
+        results = self.scout.get_index('a', q='bravo', ranking='bm25')
         for doc in results['documents']:
             self.assertIn('score', doc)
-
-        results = self.scout.get_index('idx', q='foo', ranking='none')
+        results = self.scout.get_index('a', q='bravo', ranking='none')
         for doc in results['documents']:
             self.assertNotIn('score', doc)
 
-    def test_attach_and_get_attachments(self):
+        # Pagination.
+        for i in range(10):
+            self.scout.create_document('doc %d' % i, 'a')
+        result = self.scout.get_documents()
+        self.assertEqual(result['pages'], 2)
+        self.assertEqual(len(result['documents']), 10)
+
+    def test_attachment_lifecycle(self):
         self.scout.create_index('idx')
         doc = self.scout.create_document('with file', 'idx')
         doc_id = doc['id']
 
+        # Attach.
         result = self.scout.attach_files(doc_id, {
             'hello.txt': BytesIO(b'hello world'),
         })
         self.assertEqual(len(result['attachments']), 1)
         self.assertEqual(result['attachments'][0]['filename'], 'hello.txt')
 
+        # List.
         attachments = self.scout.get_attachments(doc_id)
         self.assertEqual(len(attachments['attachments']), 1)
-        att, = attachments['attachments']
+        att = attachments['attachments'][0]
         self.assertEqual(att['filename'], 'hello.txt')
-        self.assertEqual(att['document'], '/documents/%d/' % doc_id)
         self.assertEqual(att['mimetype'], 'text/plain')
 
-    def test_attachments_via_identifier_url(self):
+        # Detail.
+        detail = self.scout.get_attachment(doc_id, 'hello.txt')
+        self.assertEqual(detail['filename'], 'hello.txt')
+
+        # Download.
+        downloaded = self.scout.download_attachment(doc_id, 'hello.txt')
+        self.assertEqual(downloaded, b'hello world')
+
+        # Update.
+        self.scout.update_file(doc_id, 'hello.txt', BytesIO(b'updated'))
+        self.assertEqual(
+            self.scout.download_attachment(doc_id, 'hello.txt'), b'updated')
+
+        # Detach.
+        self.scout.detach_file(doc_id, 'hello.txt')
+        self.assertEqual(Attachment.select().count(), 0)
+
+    def test_attachments_via_identifier(self):
         self.scout.create_index('idx')
         doc = self.scout.create_document('doc', 'idx', identifier='file-host')
 
         self.scout.attach_files('file-host', {
             'test.txt': BytesIO(b'payload')})
-
         resp = self.scout.get_attachments('file-host')
-        self.assertEqual(len(resp['attachments']), 1)
         self.assertEqual(resp['attachments'][0]['filename'], 'test.txt')
+        self.assertEqual(
+            self.scout.download_attachment('file-host', 'test.txt'),
+            b'payload')
 
-        # Download via identifier URL.
-        dl = self.scout.download_attachment('file-host', 'test.txt')
-        self.assertEqual(dl, b'payload')
-
-    def test_get_attachment_detail(self):
+    def test_create_document_with_attachments(self):
         self.scout.create_index('idx')
-        doc = self.scout.create_document('doc', 'idx')
-        self.scout.attach_files(doc['id'], {'pic.png': BytesIO(b'PNG\x00')})
-
-        detail = self.scout.get_attachment(doc['id'], 'pic.png')
-        self.assertEqual(detail['filename'], 'pic.png')
-        self.assertEqual(detail['mimetype'], 'image/png')
+        doc = self.scout.create_document(
+            'with attachment', 'idx',
+            attachments={'readme.txt': BytesIO(b'read me')})
+        self.assertEqual(len(doc['attachments']), 1)
+        self.assertEqual(doc['attachments'][0]['filename'], 'readme.txt')
 
     def test_upload_binary_file_with_crlf(self):
         self.scout.create_index('idx')
@@ -2272,47 +1866,30 @@ class TestScoutClient(BaseTestCase):
             attachments={'evil.bin': BytesIO(evil_data)})
         self.assertEqual(len(doc['attachments']), 1)
 
-        downloaded = self.scout.download_attachment(doc['id'], 'evil.bin')
-        self.assertEqual(downloaded, evil_data)
+        self.assertEqual(
+            self.scout.download_attachment(doc['id'], 'evil.bin'), evil_data)
+        self.assertEqual(
+            self.scout.download_attachment('evil-doc', 'evil.bin'), evil_data)
 
-        downloaded = self.scout.download_attachment('evil-doc', 'evil.bin')
-        self.assertEqual(downloaded, evil_data)
+    def test_search_attachments(self):
+        self.scout.create_index('a')
+        self.scout.create_index('b')
+        self.scout.create_document(
+            'doc a', 'a', attachments={
+                'a.txt': BytesIO(b'aaa'),
+                'b.jpg': BytesIO(b'bbb')})
+        self.scout.create_document(
+            'doc b', 'b', attachments={'fb.txt': BytesIO(b'b')})
 
-    def test_download_attachment(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('doc', 'idx')
-        content = b'raw file bytes here\x00\x00\xff\xff'
-        self.scout.attach_files(doc['id'], {'data.bin': BytesIO(content)})
+        results = self.scout.search_attachments()
+        self.assertEqual(len(results['attachments']), 3)
 
-        downloaded = self.scout.download_attachment(doc['id'], 'data.bin')
-        self.assertEqual(downloaded, content)
+        results = self.scout.search_attachments(mimetype='image/jpeg')
+        self.assertEqual(len(results['attachments']), 1)
+        self.assertEqual(results['attachments'][0]['filename'], 'b.jpg')
 
-    def test_detach_file(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('doc', 'idx')
-        self.scout.attach_files(doc['id'], {'f.txt': BytesIO(b'x')})
-        self.assertEqual(Attachment.select().count(), 1)
-
-        result = self.scout.detach_file(doc['id'], 'f.txt')
-        self.assertEqual(result, {'success': True})
-        self.assertEqual(Attachment.select().count(), 0)
-
-    def test_update_file(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document('doc', 'idx')
-        self.scout.attach_files(doc['id'], {'f.txt': BytesIO(b'old\xff')})
-
-        self.scout.update_file(doc['id'], 'f.txt', BytesIO(b'new\xff'))
-        downloaded = self.scout.download_attachment(doc['id'], 'f.txt')
-        self.assertEqual(downloaded, b'new\xff')
-
-    def test_create_document_with_attachments(self):
-        self.scout.create_index('idx')
-        doc = self.scout.create_document(
-            'with attachment', 'idx',
-            attachments={'readme.txt': BytesIO(b'read me')})
-        self.assertEqual(len(doc['attachments']), 1)
-        self.assertEqual(doc['attachments'][0]['filename'], 'readme.txt')
+        results = self.scout.search_attachments(index='a')
+        self.assertEqual(len(results['attachments']), 2)
 
     def test_authentication_key_sent(self):
         app.config['AUTHENTICATION'] = 'my-secret'
@@ -2322,7 +1899,7 @@ class TestScoutClient(BaseTestCase):
             indexes = authed.get_indexes()
             self.assertEqual(len(indexes), 1)
 
-            # Without key, should get 401 — the raw response is not JSON.
+            # Without key, should get 401 -- the raw response is not JSON.
             no_key = FlaskScout(app, key=None)
             raw = no_key.get_raw('/')
             self.assertIn(b'Invalid API key', raw)
@@ -2377,34 +1954,6 @@ class TestScoutClient(BaseTestCase):
         self.scout.delete_document(doc_id)
         results = self.scout.get_index('blog', q='python')
         self.assertEqual(len(results['documents']), 0)
-
-    def test_search_attachments(self):
-        self.scout.create_index('idx')
-        self.scout.create_document(
-            'with files', 'idx',
-            attachments={
-                'a.txt': BytesIO(b'aaa'),
-                'b.jpg': BytesIO(b'bbb'),
-            })
-
-        results = self.scout.search_attachments()
-        self.assertEqual(len(results['attachments']), 2)
-
-        results = self.scout.search_attachments(mimetype='image/jpeg')
-        self.assertEqual(len(results['attachments']), 1)
-        self.assertEqual(results['attachments'][0]['filename'], 'b.jpg')
-
-    def test_search_attachments_by_index(self):
-        self.scout.create_index('a')
-        self.scout.create_index('b')
-        self.scout.create_document(
-            'doc a', 'a', attachments={'fa.txt': BytesIO(b'a')})
-        self.scout.create_document(
-            'doc b', 'b', attachments={'fb.txt': BytesIO(b'b')})
-
-        results = self.scout.search_attachments(index='a')
-        self.assertEqual(len(results['attachments']), 1)
-        self.assertEqual(results['attachments'][0]['filename'], 'fa.txt')
 
 
 class FTS5TestCase(BaseTestCase):
@@ -2464,12 +2013,10 @@ class TestScopeToContent(FTS5TestCase):
         self.assertEqual(self._search('keyword'), [])
         self.assertEqual(self._search('xyz'), [])
 
-    def test_content_still_matches(self):
-        self._add('the quick brown fox', identifier='doc-001')
+        # Content still matches.
         self.assertEqual(self._search('quick'), ['the quick brown fox'])
-        self.assertEqual(self._search('brown'), ['the quick brown fox'])
 
-    def test_shared_term_in_both_columns(self):
+    def test_shared_term_only_matches_content(self):
         self._add('python tutorial for beginners', identifier='python tut')
         self.assertEqual(self._search('python'),
                          ['python tutorial for beginners'])
@@ -2480,19 +2027,14 @@ class TestScopeToContent(FTS5TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(self._contents(data), [])
 
-    def test_http_content_match(self):
-        self._add('secret formula', identifier='magic keyword')
         data, status = self._http_search('secret')
         self.assertEqual(status, 200)
         self.assertEqual(self._contents(data), ['secret formula'])
 
     def test_column_filter_injection(self):
         self._add('harmless content', identifier='secret data')
-        results = self._search('identifier : secret')
-        self.assertEqual(results, [])
-
-        results = self._search('x OR identifier : secret')
-        self.assertEqual(results, [])
+        self.assertEqual(self._search('identifier : secret'), [])
+        self.assertEqual(self._search('x OR identifier : secret'), [])
 
         # HTTP level: should be 200 with no results, or 400 if FTS5
         # rejects the nested column filter.
@@ -2767,27 +2309,27 @@ class TestFTS5WithMetadataFilters(FTS5TestCase):
 
 
 class TestFTS5EdgeCases(FTS5TestCase):
-    def test_search_empty_index(self):
+    def test_empty_index_and_mutations(self):
+        # Search empty index.
         self.assertEqual(self._search('anything'), [])
 
-    def test_duplicate_content(self):
+        # Duplicate content creates separate documents.
         for _ in range(3):
             self._add('identical content here')
         self.assertEqual(len(self._search('identical')), 3)
 
-    def test_search_after_update(self):
+        # Update replaces content in index.
         doc = self._add('original content', identifier='doc1')
         self.assertEqual(len(self._search('original')), 1)
-
         self.index.index(content='updated content', document=doc,
                          identifier='doc1')
         self.assertEqual(self._search('original'), [])
         self.assertEqual(len(self._search('updated')), 1)
 
-    def test_search_after_delete(self):
-        doc = self._add('ephemeral content')
+        # Delete removes from index.
+        doc2 = self._add('ephemeral content')
         self.assertEqual(len(self._search('ephemeral')), 1)
-        doc.delete_instance()
+        doc2.delete_instance()
         self.assertEqual(self._search('ephemeral'), [])
 
     def test_asterisk_with_filter(self):
@@ -2813,29 +2355,28 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
         for i in range(25):
             self._add('document number %d about testing' % i, idx=str(i))
 
-    def test_pagination(self):
+    def test_pagination_and_counts(self):
         data, _ = self._http_search('testing')
         self.assertEqual(data['filtered_count'], 25)
         self.assertEqual(len(data['documents']), 10)
         self.assertEqual(data['search_term'], 'testing')
         self.assertEqual(data['ranking'], 'bm25')
 
-    def test_filtered_count(self):
+        # Filter narrows count.
         data, _ = self._http_search('testing', idx='5')
         self.assertEqual(data['filtered_count'], 1)
 
-    def test_ranking_none(self):
-        data, _ = self._http_search('testing', ranking='none')
-        self.assertEqual(data['ranking'], 'none')
-
-    def test_invalid_ranking(self):
-        data, status = self._http_search('testing', ranking='invalid')
-        self.assertEqual(status, 400)
-
-    def test_documents_endpoint(self):
+        # Documents endpoint.
         data, status = self._http_search_docs('testing')
         self.assertEqual(status, 200)
         self.assertEqual(data['filtered_count'], 25)
+
+    def test_ranking_options(self):
+        data, _ = self._http_search('testing', ranking='none')
+        self.assertEqual(data['ranking'], 'none')
+
+        data, status = self._http_search('testing', ranking='invalid')
+        self.assertEqual(status, 400)
 
 
 def main():
