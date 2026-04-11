@@ -77,21 +77,16 @@ class Document(FTS5Model):
             data = data.encode('utf-8')
         hash_obj = hashlib.sha256(data)
         data_hash = base64.b64encode(hash_obj.digest())
-        try:
-            with database.atomic():
-                data_obj = BlobData.create(hash=data_hash, data=data)
-        except IntegrityError:
-            pass
-
         with database.atomic():
+            # If updating a pre-existing attachment w/this filename, first
+            # delete - this ensures blobdata is cleaned up as well if needed.
+            self.detach(filename)
+
             try:
-                attachment = (Attachment
-                              .get((Attachment.document == self) &
-                                   (Attachment.filename == filename)))
-            except Attachment.DoesNotExist:
+                with database.atomic():
+                    data_obj = BlobData.create(hash=data_hash, data=data)
+            except IntegrityError:
                 pass
-            else:
-                attachment.delete_instance()
 
             attachment = Attachment.create(
                 document=self,
@@ -153,27 +148,20 @@ class DocLookup(BaseModel):
         """
         if identifier:
             # If another document currently owns this identifier, clear it.
-            try:
-                existing = (cls
-                            .select()
-                            .where(
-                                (cls.identifier == identifier) &
-                                (cls.rowid != document.rowid))
-                            .get())
-                # Clear the old owner's Document.identifier field.
-                old_doc = (Document.all()
-                           .where(Document.rowid == existing.rowid)
-                           .get())
-                old_doc.identifier = None
-                old_doc.save()
-                existing.delete_instance()
-            except cls.DoesNotExist:
-                pass
+            (Document
+             .update(identifier=None)
+             .where((Document.identifier == identifier) &
+                    (Document.rowid != document.rowid))
+             .execute())
+            (DocLookup.delete()
+             .where(DocLookup.identifier == identifier)
+             .execute())
 
-            # Remove any previous identifier for this document.
-            cls.delete().where(cls.rowid == document.rowid).execute()
-            cls.insert(rowid=document.rowid,
-                       identifier=identifier).execute()
+            # Insert or update previous identifier for this document.
+            (DocLookup
+             .replace(rowid=document.rowid, identifier=identifier)
+             .execute())
+
             document.identifier = identifier
         else:
             if document.identifier:
