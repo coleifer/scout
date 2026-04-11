@@ -557,6 +557,117 @@ class TestDocLookupModelLevel(BaseTestCase):
         self.assertEqual(DocLookup.get_document('id-a').rowid, doc_b.rowid)
         self.assertEqual(DocLookup.get_document('id-b').rowid, doc_a.rowid)
 
+    def test_set_identifier_basic(self):
+        """set_identifier in isolation: set, rename, clear."""
+        doc = self.index.index(content='test')
+        self.assertIsNone(doc.identifier)
+        self.assertEqual(DocLookup.select().count(), 0)
+
+        # Set.
+        DocLookup.set_identifier(doc, 'alpha')
+        self.assertEqual(doc.identifier, 'alpha')
+        self.assertEqual(DocLookup.get().identifier, 'alpha')
+        self.assertEqual(DocLookup.get().rowid, doc.rowid)
+
+        # Rename.
+        DocLookup.set_identifier(doc, 'beta')
+        self.assertEqual(doc.identifier, 'beta')
+        self.assertEqual(DocLookup.select().count(), 1)
+        self.assertEqual(DocLookup.get().identifier, 'beta')
+        self.assertRaises(DocLookup.DoesNotExist, DocLookup.get,
+                          DocLookup.identifier == 'alpha')
+
+        # Clear.
+        DocLookup.set_identifier(doc, None)
+        self.assertIsNone(doc.identifier)
+        self.assertEqual(DocLookup.select().count(), 0)
+
+        # Clear when already clear — no error.
+        DocLookup.set_identifier(doc, None)
+        self.assertIsNone(doc.identifier)
+
+    def test_set_identifier_theft_clears_victim(self):
+        """Stealing an identifier must clear the victim's Document.identifier."""
+        doc_a = self.index.index(content='aaa', identifier='shared')
+        doc_b = self.index.index(content='bbb', identifier='other')
+
+        # Steal 'shared' from doc_a and give it to doc_b.
+        DocLookup.set_identifier(doc_b, 'shared')
+        doc_b.save()
+
+        # doc_b now owns it in both tables.
+        self.assertEqual(DocLookup.select().count(), 1)
+        self.assertEqual(DocLookup.get().rowid, doc_b.rowid)
+        self.assertEqual(doc_b.identifier, 'shared')
+
+        # doc_a's FTS field must also be cleared — not just the lookup.
+        victim = Document.all().where(Document.rowid == doc_a.rowid).get()
+        self.assertIsNone(victim.identifier)
+
+        # doc_a has no DocLookup row.
+        self.assertFalse(
+            DocLookup.select()
+            .where(DocLookup.rowid == doc_a.rowid)
+            .exists())
+
+    def test_theft_via_index_method(self):
+        """Index.index() with an identifier belonging to another doc."""
+        doc_a = self.index.index(content='owner', identifier='taken')
+        doc_b = self.index.index(content='taker')
+
+        # Re-index doc_b with doc_a's identifier.
+        self.index.index(content='taker v2', document=doc_b,
+                         identifier='taken')
+
+        # doc_b owns it.
+        found = DocLookup.get_document('taken')
+        self.assertEqual(found.rowid, doc_b.rowid)
+        self.assertEqual(found.content, 'taker v2')
+
+        # doc_a's identifier is cleared in both places.
+        victim = Document.all().where(Document.rowid == doc_a.rowid).get()
+        self.assertIsNone(victim.identifier)
+        self.assertFalse(
+            DocLookup.select()
+            .where(DocLookup.rowid == doc_a.rowid)
+            .exists())
+
+    def test_numeric_identifier_vs_rowid(self):
+        """Numeric identifier must take precedence over rowid."""
+        # Create 3 docs without identifiers — rowids 1, 2, 3.
+        doc1 = self.index.index(content='rowid-1')
+        doc2 = self.index.index(content='rowid-2')
+        doc3 = self.index.index(content='rowid-3')
+        self.assertEqual(doc1.rowid, 1)
+        self.assertEqual(doc2.rowid, 2)
+
+        # Give doc3 the identifier '1' — which is doc1's rowid.
+        self.index.index(content='rowid-3', document=doc3, identifier='1')
+
+        # Lookup '1' must return doc3 (identifier), not doc1 (rowid).
+        found = DocLookup.get_document('1')
+        self.assertEqual(found.rowid, doc3.rowid)
+        self.assertEqual(found.content, 'rowid-3')
+
+        # Integer 1 also returns doc3 — identifier still wins.
+        found = DocLookup.get_document(1)
+        self.assertEqual(found.rowid, doc3.rowid)
+
+        # After removing the identifier, '1' falls back to rowid.
+        DocLookup.set_identifier(doc3, None)
+        doc3.save()
+        found = DocLookup.get_document('1')
+        self.assertEqual(found.rowid, doc1.rowid)
+        self.assertEqual(found.content, 'rowid-1')
+
+    def test_set_identifier_empty_string_treated_as_clear(self):
+        doc = self.index.index(content='test', identifier='will-clear')
+        self.assertEqual(DocLookup.select().count(), 1)
+
+        DocLookup.set_identifier(doc, '')
+        self.assertIsNone(doc.identifier)
+        self.assertEqual(DocLookup.select().count(), 0)
+
 
 #
 # Layer 2: HTTP APIs
@@ -1757,13 +1868,22 @@ class TestDocLookupHTTP(HTTPTestCase):
 
         self._update(r2['id'], identifier='mine')
 
+        # Thief now owns the identifier.
         self.assertEqual(self._get('mine')['id'], r2['id'])
         self.assertLookupCount(1)
+        self.assertLookupMaps('mine', r2['id'])
 
-        # Owner still reachable by rowid, but has no lookup.
-        self.assertEqual(self._get(r1['id'])['content'], 'owner')
+        # Victim's DocLookup row is gone.
         self.assertFalse(DocLookup.select().where(
             DocLookup.rowid == r1['id']).exists())
+
+        # Victim's Document.identifier field must also be cleared.
+        victim = Document.all().where(Document.rowid == r1['id']).get()
+        self.assertIsNone(victim.identifier)
+
+        # Victim is still reachable by rowid.
+        self.assertEqual(self._get(r1['id'])['content'], 'owner')
+        self.assertIsNone(self._get(r1['id'])['identifier'])
 
     def test_reuse_identifier_after_delete(self):
         old_id = self._create('first', identifier='recycled')['id']
@@ -1883,12 +2003,104 @@ class TestDocLookupHTTP(HTTPTestCase):
         self.assertEqual(Document.select().count(), 2)
 
     def test_identifier_with_special_characters(self):
-        for ident in ('has spaces', 'slashes/in/it', 'q?mark', 'pct%20enc'):
+        # These identifiers are URL-safe and should round-trip via URL.
+        safe_idents = ('has-dashes', 'dots.in.it', 'under_scores',
+                        'MixedCase123')
+        for ident in safe_idents:
             doc_id = self._create('content', identifier=ident)['id']
-            self.assertEqual(self._get(doc_id)['identifier'], ident)
+            # Lookup by identifier through URL works.
+            self.assertEqual(self._get(ident)['id'], doc_id)
             self.assertLookupMaps(ident, doc_id)
+            self._delete(ident)
+            self.assertLookupCount(0)
+
+        # Identifiers with URL-unsafe characters (slashes, ?, %, spaces)
+        # are stored correctly but cannot be used in URL path lookups.
+        # Users must use the rowid to access these documents via URL.
+        unsafe_idents = ('slashes/in/it', 'q?mark', 'pct%20enc',
+                         'has spaces')
+        for ident in unsafe_idents:
+            doc_id = self._create('content', identifier=ident)['id']
+            # Rowid lookup still works.
+            detail = self._get(doc_id)
+            self.assertEqual(detail['identifier'], ident)
+            self.assertLookupMaps(ident, doc_id)
+            # URL-based identifier lookup will fail for these — the URL
+            # path itself is mangled by Flask routing.  We don't assert
+            # that _get(ident) works, because it won't for slashes etc.
             self._delete(doc_id)
             self.assertLookupCount(0)
+
+    def test_serialized_attachment_urls_resolve(self):
+        """Attachment URLs from serialized output must actually work."""
+        doc = self._create('doc with file', identifier='att-test')
+        doc_id = doc['id']
+
+        # Attach a file.
+        self.app.post('/documents/%s/attachments/' % doc_id, data={
+            'data': '{}',
+            'file_0': (BytesIO(b'payload'), 'readme.txt')})
+
+        # Get the document detail — contains serialized attachment URL.
+        detail = self._get(doc_id)
+        self.assertEqual(len(detail['attachments']), 1)
+        att_url = detail['attachments'][0]['data']
+
+        # Follow the serialized URL — it must return the file data.
+        response = self.app.get(att_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, b'payload')
+
+        # Also works when fetched via identifier.
+        detail_via_ident = self._get('att-test')
+        att_url_2 = detail_via_ident['attachments'][0]['data']
+        response2 = self.app.get(att_url_2)
+        self.assertEqual(response2.status_code, 200)
+        self.assertEqual(response2.data, b'payload')
+
+    def test_steal_then_reassign_chain(self):
+        """A -> B -> C identifier theft chain. All victims are cleaned up."""
+        a = self._create('aaa', identifier='hot-potato')
+        b = self._create('bbb', identifier='b-id')
+        c = self._create('ccc', identifier='c-id')
+
+        # B steals from A.
+        self._update(b['id'], identifier='hot-potato')
+        victim_a = Document.all().where(Document.rowid == a['id']).get()
+        self.assertIsNone(victim_a.identifier)
+        self.assertEqual(self._get('hot-potato')['id'], b['id'])
+
+        # C steals from B.
+        self._update(c['id'], identifier='hot-potato')
+        victim_b = Document.all().where(Document.rowid == b['id']).get()
+        self.assertIsNone(victim_b.identifier)
+        self.assertEqual(self._get('hot-potato')['id'], c['id'])
+
+        # Only one DocLookup for 'hot-potato', pointing at C.
+        self.assertLookupMaps('hot-potato', c['id'])
+        # A and B have no DocLookup entries at all.
+        self.assertFalse(DocLookup.select().where(
+            DocLookup.rowid == a['id']).exists())
+        self.assertFalse(DocLookup.select().where(
+            DocLookup.rowid == b['id']).exists())
+
+    def test_create_with_identifier_matching_other_rowid(self):
+        """POST /documents/ with identifier='1' must not clobber rowid 1."""
+        r1 = self._create('first doc')  # rowid 1
+        r2 = self._create('second doc', identifier=str(r1['id']))
+
+        # Two separate documents exist.
+        self.assertNotEqual(r1['id'], r2['id'])
+        self.assertEqual(Document.select().count(), 2)
+
+        # Identifier '1' resolves to r2, not r1.
+        self.assertEqual(self._get(str(r1['id']))['id'], r2['id'])
+
+        # r1 is shadowed — '/documents/1/' returns r2 because identifier
+        # takes precedence.  r1 is only reachable after clearing r2's
+        # identifier.
+        self._update(r2['id'], identifier='renamed')
+        self.assertEqual(self._get(r1['id'])['content'], 'first doc')
 
 
 #
@@ -2033,6 +2245,53 @@ class TestScoutClient(BaseTestCase):
         doc = self.scout.create_document('no ident', 'idx')
         self.assertIn(doc['identifier'], (None, ''))
         self.assertEqual(DocLookup.select().count(), 0)
+
+    def test_client_identifier_theft(self):
+        """Client-layer: stealing an identifier clears the victim."""
+        self.scout.create_index('idx')
+        a = self.scout.create_document('owner', 'idx', identifier='prize')
+        b = self.scout.create_document('thief', 'idx', identifier='other')
+
+        self.scout.update_document(b['id'], identifier='prize')
+
+        # Thief owns it.
+        found = self.scout.get_document('prize')
+        self.assertEqual(found['id'], b['id'])
+
+        # Victim's Document.identifier is cleared.
+        victim = Document.all().where(Document.rowid == a['id']).get()
+        self.assertIsNone(victim.identifier)
+        self.assertFalse(
+            DocLookup.select()
+            .where(DocLookup.rowid == a['id'])
+            .exists())
+
+    def test_client_numeric_identifier(self):
+        """Client-layer: numeric identifier doesn't shadow a rowid."""
+        self.scout.create_index('idx')
+        d1 = self.scout.create_document('first', 'idx')
+        d2 = self.scout.create_document('second', 'idx',
+                                         identifier=str(d1['id']))
+
+        # Lookup by the numeric string returns d2 (identifier), not d1.
+        found = self.scout.get_document(str(d1['id']))
+        self.assertEqual(found['id'], d2['id'])
+
+    def test_client_attachment_round_trip_via_identifier(self):
+        """Client-layer: attach, list, download via identifier."""
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('host', 'idx', identifier='host-id')
+
+        self.scout.attach_files('host-id', {'f.txt': BytesIO(b'data')})
+        atts = self.scout.get_attachments('host-id')
+        self.assertEqual(len(atts['attachments']), 1)
+
+        downloaded = self.scout.download_attachment('host-id', 'f.txt')
+        self.assertEqual(downloaded, b'data')
+
+        # Also works via rowid.
+        downloaded2 = self.scout.download_attachment(doc['id'], 'f.txt')
+        self.assertEqual(downloaded2, b'data')
 
     def test_validate_rowid_present(self):
         self.assertRaises(ValueError, self.scout.delete_document)
