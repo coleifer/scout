@@ -147,10 +147,34 @@ class DocLookup(BaseModel):
         """
         Single entry-point for updating a document's identifier. Keeps
         Document.identifier and the DocLookup table in sync.
+
+        Must be called inside a database.atomic() block together with
+        any subsequent document.save() to guarantee consistency.
         """
         if identifier:
+            # If another document currently owns this identifier, clear it.
+            try:
+                existing = (cls
+                            .select()
+                            .where(
+                                (cls.identifier == identifier) &
+                                (cls.rowid != document.rowid))
+                            .get())
+                # Clear the old owner's Document.identifier field.
+                old_doc = (Document.all()
+                           .where(Document.rowid == existing.rowid)
+                           .get())
+                old_doc.identifier = None
+                old_doc.save()
+                existing.delete_instance()
+            except cls.DoesNotExist:
+                pass
+
+            # Remove any previous identifier for this document.
+            cls.delete().where(cls.rowid == document.rowid).execute()
+            cls.insert(rowid=document.rowid,
+                       identifier=identifier).execute()
             document.identifier = identifier
-            cls.replace(rowid=document.rowid, identifier=identifier).execute()
         else:
             if document.identifier:
                 cls.delete().where(cls.rowid == document.rowid).execute()
@@ -246,18 +270,19 @@ class Index(BaseModel):
             except Document.DoesNotExist:
                 pass
 
-        if document is None:
-            document = Document.create(
-                content=content,
-                identifier=identifier_value)
-            if identifier_value:
-                DocLookup.set_identifier(document, identifier_value)
-        else:
-            del document.metadata
-            document.content = content
-            if identifier is not SENTINEL:
-                DocLookup.set_identifier(document, identifier_value)
-            document.save()
+        with database.atomic():
+            if document is None:
+                document = Document.create(
+                    content=content,
+                    identifier=identifier_value)
+                if identifier_value:
+                    DocLookup.set_identifier(document, identifier_value)
+            else:
+                del document.metadata
+                document.content = content
+                if identifier is not SENTINEL:
+                    DocLookup.set_identifier(document, identifier_value)
+                document.save()
 
         self.add_to_index(document)
         if metadata:

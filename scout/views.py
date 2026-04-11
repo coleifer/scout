@@ -346,12 +346,13 @@ class DocumentView(_FileProcessingView):
                 pass
 
         identifier = data.get('identifier')
-        document = Document.create(
-            content=data['content'],
-            identifier=identifier)
+        with database.atomic():
+            document = Document.create(
+                content=data['content'],
+                identifier=identifier)
 
-        if identifier:
-            DocLookup.set_identifier(document, identifier)
+            if identifier:
+                DocLookup.set_identifier(document, identifier)
 
         if data.get('metadata'):
             document.metadata = data['metadata']
@@ -383,16 +384,17 @@ class DocumentView(_FileProcessingView):
             document.content = data['content'] or ''
             save_document = True
 
-        if 'identifier' in data and data['identifier']:
-            DocLookup.set_identifier(document, data['identifier'])
-            save_document = True
-        elif 'identifier' in data and document.identifier:
-            DocLookup.set_identifier(document, None)
-            save_document = True
+        with database.atomic():
+            if 'identifier' in data and data['identifier']:
+                DocLookup.set_identifier(document, data['identifier'])
+                save_document = True
+            elif 'identifier' in data and document.identifier:
+                DocLookup.set_identifier(document, None)
+                save_document = True
 
-        if save_document:
-            document.save()
-            logger.info('Updated document with id = %s', document.get_id())
+            if save_document:
+                document.save()
+                logger.info('Updated document with id = %s', document.get_id())
 
         if 'metadata' in data:
             if data['metadata']:
