@@ -988,7 +988,7 @@ class TestHTTPAttachments(HTTPTestCase):
             'metadata': {'foo': 'bar', 'nug': 'baze'}})
 
         self.assertEqual(Attachment.select().count(), 2)
-        self.assertEqual(BlobData.select().count(), 3)
+        self.assertEqual(BlobData.select().count(), 2)  # BlobData orphan gone.
 
         # Existing file updated, new file added.
         foo, foo2 = Attachment.select().order_by(Attachment.filename)

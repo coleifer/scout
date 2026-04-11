@@ -67,7 +67,8 @@ class Document(FTS5Model):
                 .where(IndexDocument.document == self.rowid))
 
     def attach(self, filename, data):
-        filename = secure_filename(filename)
+        filename = secure_filename(filename) or 'unnamed'
+        mimetype = mimetypes.guess_type(filename)[0] or 'text/plain'
         if isinstance(data, str):
             data = data.encode('utf-8')
         hash_obj = hashlib.sha256(data)
@@ -78,21 +79,21 @@ class Document(FTS5Model):
         except IntegrityError:
             pass
 
-        mimetype = mimetypes.guess_type(filename)[0] or 'text/plain'
-        try:
-            with database.atomic():
-                attachment = Attachment.create(
-                    document=self,
-                    filename=filename,
-                    hash=data_hash,
-                    mimetype=mimetype)
-        except IntegrityError:
-            attachment = (Attachment
-                          .get((Attachment.document == self) &
-                               (Attachment.filename == filename)))
-            attachment.hash = data_hash
-            attachment.mimetype = mimetype
-            attachment.save(only=[Attachment.hash, Attachment.mimetype])
+        with database.atomic():
+            try:
+                attachment = (Attachment
+                              .get((Attachment.document == self) &
+                                   (Attachment.filename == filename)))
+            except Attachment.DoesNotExist:
+                pass
+            else:
+                attachment.delete_instance()
+
+            attachment = Attachment.create(
+                document=self,
+                filename=filename,
+                hash=data_hash,
+                mimetype=mimetype)
 
         return attachment
 
@@ -105,17 +106,7 @@ class Document(FTS5Model):
             except Attachment.DoesNotExist:
                 return 0
 
-            blob_hash = attachment.hash
             attachment.delete_instance()
-
-            # Clean up orphaned blob data.
-            remaining = (Attachment
-                         .select()
-                         .where(Attachment.hash == blob_hash)
-                         .count())
-            if remaining == 0:
-                BlobData.delete().where(BlobData.hash == blob_hash).execute()
-
             return 1
 
 
@@ -160,6 +151,19 @@ class Attachment(BaseModel):
         indexes = (
             (('document', 'filename'), True),
         )
+
+    def delete_instance(self):
+        ret = super(Attachment, self).delete_instance()
+
+        # Clean up orphaned blob data.
+        blob_refs = (Attachment
+                     .select()
+                     .where(Attachment.hash == self.hash)
+                     .exists())
+        if not blob_refs:
+            BlobData.delete().where(BlobData.hash == self.hash).execute()
+
+        return ret
 
     @property
     def blob(self):
