@@ -9,6 +9,8 @@ from playhouse.sqlite_ext import *
 from playhouse.test_utils import assert_query_count
 
 from scout.client import Scout
+from scout.client import SearchProvider
+from scout.client import SearchSite
 from scout.constants import SEARCH_BM25
 from scout.constants import SEARCH_NONE
 from scout.exceptions import InvalidRequestException
@@ -3448,6 +3450,71 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
             self.assertEqual(p['filtered_count'], 3)
             self.assertEqual(self._contents(p), [])
 
+class Entry(object):
+    def __init__(self, title, body, pk):
+        self.title = title
+        self.body = body
+        self.pk = pk
+
+class EntryProvider(SearchProvider):
+    def content(self, entry):
+        return '%s: %s' % (entry.title, entry.body)
+    def identifier(self, entry):
+        return 'entry:%s' % entry.pk
+    def metadata(self, entry):
+        return {'id': entry.pk, 'title': entry.title}
+
+class TestSearchSite(BaseTestCase):
+    def setUp(self):
+        super(TestSearchSite, self).setUp()
+        app.config['AUTHENTICATION'] = None
+        self.app = app.test_client()
+        self.index = Index.create(name='default')
+        self.scout = FlaskScout(app)
+        self.site = SearchSite(self.scout, 'default')
+        self.site.register(Entry, EntryProvider)
+
+    def test_search_site(self):
+        entries = [Entry(title='t%s' % i, body='b%s' % i, pk=i)
+                   for i in range(3)]
+        for entry in entries:
+            self.site.store(entry)
+
+        resp = self.scout.get_index('default')
+        self.assertEqual([d['content'] for d in resp['documents']],
+                         ['t0: b0', 't1: b1', 't2: b2'])
+        self.assertEqual([d['identifier'] for d in resp['documents']],
+                         ['entry:0', 'entry:1', 'entry:2'])
+        self.assertEqual([d['metadata']['id'] for d in resp['documents']],
+                         ['0', '1', '2'])
+        self.assertEqual([d['metadata']['title'] for d in resp['documents']],
+                         ['t0', 't1', 't2'])
+
+        entries[1].title = 't1-x'
+        entries[2].body = 'b2-x'
+        self.site.store(entries[1])
+        self.site.store(entries[2])
+
+        resp = self.scout.get_index('default')
+        self.assertEqual([d['content'] for d in resp['documents']],
+                         ['t0: b0', 't1-x: b1', 't2: b2-x'])
+        self.assertEqual([d['identifier'] for d in resp['documents']],
+                         ['entry:0', 'entry:1', 'entry:2'])
+        self.assertEqual([d['metadata']['id'] for d in resp['documents']],
+                         ['0', '1', '2'])
+        self.assertEqual([d['metadata']['title'] for d in resp['documents']],
+                         ['t0', 't1-x', 't2'])
+
+        self.site.remove(entries[1])
+        resp = self.scout.get_index('default')
+        self.assertEqual([d['content'] for d in resp['documents']],
+                         ['t0: b0', 't2: b2-x'])
+        self.assertEqual([d['identifier'] for d in resp['documents']],
+                         ['entry:0', 'entry:2'])
+        self.assertEqual([d['metadata']['id'] for d in resp['documents']],
+                         ['0', '2'])
+        self.assertEqual([d['metadata']['title'] for d in resp['documents']],
+                         ['t0', 't2'])
 
 
 def main():
