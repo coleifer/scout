@@ -2,7 +2,6 @@ import base64
 import datetime
 import hashlib
 import mimetypes
-import sys
 
 from peewee import *
 from playhouse.fields import CompressedField

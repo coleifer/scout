@@ -7,13 +7,11 @@ from flask import Flask
 from flask import jsonify
 from flask import make_response
 from flask import request
-from flask import Response
 from flask import url_for
 from flask.views import MethodView
 from peewee import *
 from playhouse.flask_utils import get_object_or_404
 from playhouse.flask_utils import PaginatedQuery
-from werkzeug.exceptions import NotFound
 
 from scout.constants import PROTECTED_KEYS
 from scout.constants import RANKING_CHOICES
@@ -499,7 +497,6 @@ class AttachmentView(_FileProcessingView):
             'document': Attachment.document,
             'hash': Attachment.hash,
             'filename': Attachment.filename,
-            'length': Attachment.length,
             'mimetype': Attachment.mimetype,
             'timestamp': Attachment.timestamp,
             'id': Attachment.id,

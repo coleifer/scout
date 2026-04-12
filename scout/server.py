@@ -110,7 +110,7 @@ def migrate_schema(database):
     conn.execute('DROP TABLE main_document')
     logger.info('Creating new FTS5 table')
     conn.execute('CREATE VIRTUAL TABLE "main_document" USING fts5 ('
-                 '"content", "identifier", prefix=\'2,3\', '
+                 '"content", "identifier" UNINDEXED, prefix=\'2,3\', '
                  'tokenize="porter unicode61")')
     logger.info('Populating FTS5 table')
     conn.execute('INSERT INTO "main_document" '

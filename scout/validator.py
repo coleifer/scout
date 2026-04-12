@@ -20,7 +20,7 @@ class RequestValidator(object):
         Clean and validate POSTed JSON data by defining sets of required and
         optional keys.
         """
-        if request.headers.get('content-type') == 'application/json':
+        if request.is_json:
             data = request.data
         elif 'data' not in request.form:
             error('Missing correct content-type or missing "data" field.')

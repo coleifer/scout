@@ -15,6 +15,7 @@ class Serializer(object):
         raise NotImplementedError
 
     def serialize_query(self, query, **options):
+        # NB: note really used.
         return [self.serialize(obj, **options) for obj in query]
 
 

@@ -13,7 +13,7 @@ def main(src, dest):
                  'SELECT "docid", "content", "identifier" FROM "main_document"')
     conn.execute('DROP TABLE main_document')
     conn.execute('CREATE VIRTUAL TABLE "main_document" USING fts5 ('
-                 '"content", "identifier", prefix=\'2,3\', '
+                 '"content", "identifier" UNINDEXED, prefix=\'2,3\', '
                  'tokenize="porter unicode61")')
     conn.execute('INSERT INTO "main_document" ("rowid", "content", "identifier") '
                  'SELECT "docid", "content", "identifier" FROM "_tmp"')

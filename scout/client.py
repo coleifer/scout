@@ -32,9 +32,7 @@ class Scout(object):
         if self.key:
             headers['key'] = self.key
         if kwargs:
-            if '?' not in url:
-                url += '?'
-            url += urlencode(kwargs, True)
+            url += ('&' if '?' in url else '?') + urlencode(kwargs, True)
         request = Request(self.get_full_url(url), headers=headers)
         fh = urlopen(request)
         return fh.read()
@@ -273,19 +271,22 @@ class SearchSite(object):
 
         for provider in self.registry[type(obj)]:
             content = provider.content(obj)
+            kwargs = {}
             try:
                 metadata = provider.metadata(obj)
             except NotImplementedError:
                 metadata = {}
+
+            kwargs.update(metadata)
 
             try:
                 identifier = provider.identifier(obj)
             except NotImplementedError:
                 pass
             else:
-                metadata['identifier'] = identifier
+                kwargs['identifier'] = identifier
 
-            self.client.create_document(content, self.index, **metadata)
+            self.client.create_document(content, self.index, **kwargs)
 
         return True
 
