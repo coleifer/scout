@@ -8,12 +8,12 @@ scout
 
 .. image:: http://media.charlesleifer.com/blog/photos/scout-logo.png
 
-**scout** is a RESTful search server written in Python with a focus on using
+**scout** is a restful search server written in python with a focus on using
 lightweight components:
 
-* search powered by `sqlite's full-text search extension <http://sqlite.org/fts3.html>`_
-* database access coordinated using `peewee ORM <http://docs.peewee-orm.com/>`_
-* web application built with `flask <http://flask.pocoo.org>`_ framework
+* search powered by `sqlite's full-text search extension <https://sqlite.org/fts5.html>`_
+* database access coordinated using `peewee ORM <https://docs.peewee-orm.com/>`_
+* web application built with `flask <https://flask.palletsproject.com/>`_ framework
 
 Scout aims to be a lightweight, RESTful search server in the spirit of
 `ElasticSearch <https://www.elastic.co>`_, powered by the SQLite full-text
@@ -32,11 +32,11 @@ Features
 * lightweight, low resource utilization, minimal setup required.
 * store search content and arbitrary metadata.
 * attach files or BLOBs to indexed documents.
-* multiple result ranking algorithms, porter stemmer.
+* BM25 result ranking, porter stemmer.
 * besides full-text search, perform complex filtering based on metadata values.
 * global attachment search and filtering.
 * comprehensive unit-tests.
-* supports SQLite `FTS5 <http://sqlite.org/fts5.html>`_.
+* powered by SQLite `FTS5 <http://sqlite.org/fts5.html>`_ for full-text search.
 
 Table of contents
 -----------------

@@ -262,6 +262,15 @@ Response:
       "search_term": "test"
     }
 
+The search response includes several fields beyond the document list:
+
+* ``document_count``: the total number of documents in the queried scope (e.g. the index), regardless of the current search query or filters.
+* ``filtered_count``: the number of documents that match the current search query and any metadata filters. This may be less than ``document_count``.
+* ``search_term``: echoes back the ``q`` parameter that was used.
+* ``ranking``: echoes back the ranking algorithm used (``bm25`` or ``none``).
+* ``filters``: echoes back any metadata filters that were applied.
+* ``page``, ``pages``, ``next_url``, ``previous_url``: pagination controls.
+
 ``POST`` requests update the ``name`` of the index, and like the *index_list*
 view, accept a ``name`` parameter. For example request and response, see the
 above section on creating a new index.
@@ -389,6 +398,16 @@ There are a number of operations available for use when querying metadata. Here 
 * ``keyname__endswith``: Suffix search.
 * ``keyname__regex``: Search using a regular expression.
 
+.. note::
+    All metadata values are stored as **strings**, regardless of the type used
+    when creating or updating a document (e.g. passing an integer ``33`` will be
+    stored as ``"33"``). For the comparison operators ``__ge``, ``__gt``,
+    ``__le``, and ``__lt``, if the filter value looks numeric, Scout will cast
+    both the stored value and the filter value to a real number before comparing.
+    This means that filtering should "just" work as expected - strings are ordered
+    lexicographically and numeric values are ordered numerically when the
+    filter requires it.
+
 .. _document_list:
 
 Document list: "/documents/"
@@ -495,7 +514,7 @@ Response:
 
 * ``content`` (required): the document content.
 * ``index`` or ``indexes`` (required): the name(s) of the index(es) the document should be associated with.
-* ``identifier`` (optional): an application-defined identifier for the document. If a document with the same identifier already exists, the existing document will be updated instead of creating a new one.
+* ``identifier`` (optional): an application-defined identifier for the document. If a document with the same identifier already exists, the existing document will be updated instead of creating a new one. Identifiers may only contain letters, digits, ``_``, ``-``, ``.``, and ``:``. Characters such as spaces, slashes, ``?``, and ``%`` are not allowed and will be rejected with a 400 error.
 * ``metadata`` (optional): arbitrary key/value pairs.
 
 .. warning::
@@ -888,7 +907,7 @@ The attachment list endpoint returns a paginated list of all attachments associa
 Valid GET parameters:
 
 * ``page``: which page of attachments to fetch, by default 1.
-* ``ordering``: order in which to return the attachments. By default they are returned by filename. Valid choices are ``id``, ``hash``, ``filename``, ``mimetype``, and ``timestamp``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
+* ``ordering``: order in which to return the attachments. By default they are returned by filename. Valid choices are ``id``, ``document``, ``hash``, ``filename``, ``mimetype``, and ``timestamp``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
 
 Example ``GET`` request and response.
 
@@ -1243,6 +1262,30 @@ Scout supports a handful of configuration options to control its behavior when r
 * ``-m``, ``--max-request-size``: maximum size of request body in bytes. Default is 64MB (67108864 bytes).
 * ``--migrate``: migrate older FTS4 schema to FTS5 in-place (only runs if needed).
 
+.. _fts4-migration:
+
+Migrating from FTS4 to FTS5
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Scout 4.x requires SQLite FTS5. If your database was created by an older
+version of Scout that used FTS4, the server will refuse to start and print an
+error directing you to migrate.
+
+To migrate in-place, pass the ``--migrate`` flag when starting the server:
+
+.. code-block:: console
+
+    $ scout --migrate /path/to/search.db
+
+The migration copies all document content into a new FTS5 table and builds the
+identifier lookup table. It runs inside a transaction, so if anything goes
+wrong the database is left unchanged. Once migration succeeds, subsequent
+starts no longer need the flag. Scout will detect the FTS5 schema and proceed
+normally.
+
+.. tip::
+    As always, back up your database before migrating.
+
 .. _config-file:
 
 Python Configuration File
@@ -1259,6 +1302,7 @@ The following options can be overridden:
 * ``PAGINATE_BY`` (same as ``--paginate-by``).
 * ``PORT`` (same as ``-p`` or ``--port``).
 * ``STEM`` (same as ``-s`` or ``--stem``).
+* ``URL_PREFIX`` (same as ``-u`` or ``--url-prefix``), a URL path to prefix the Scout API with.
 * ``SQLITE_PRAGMAS``, a list of 2-tuples specifying SQLite pragmas to set on the database connection (e.g. ``[('journal_mode', 'wal'), ('cache_size', -65536)]``).
 * ``MAX_CONTENT_LENGTH``, maximum request body size in bytes (same as ``-m`` or ``--max-request-size``).
 

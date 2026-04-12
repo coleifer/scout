@@ -86,6 +86,11 @@ Here is how to run gunicorn using the above wrapper script:
 
     $ gunicorn --workers=4 --bind=127.0.0.1:8000 --worker-class=gevent wrapper:app
 
+.. note::
+    The ``--worker-class=gevent`` option requires `gevent <http://www.gevent.org/>`_
+    to be installed (``pip install gevent``). You can omit this flag to use
+    Gunicorn's default synchronous workers instead.
+
 uWSGI
 -----
 

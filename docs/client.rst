@@ -40,7 +40,7 @@ Scout comes with a simple Python client. This document describes the client API.
         See :ref:`document_list` for more information.
 
         .. note::
-            This method is a thin wrapper around the :py:meth:`Client.get_documents`
+            This method is a thin wrapper around the :py:meth:`Scout.get_documents`
             method. The behavior is identical except that the ``search()``
             method makes the ``q=`` parameter required.
 
@@ -105,16 +105,38 @@ Scout comes with a simple Python client. This document describes the client API.
         :param str content: Text content to expose for search (optional).
         :param indexes: Either the name of an index or a list of index names (optional).
         :param metadata: Arbitrary key/value pairs to store alongside the document content (optional).
-        :param identifier: Set or change the document's identifier. This only updates the stored identifier - it is not used for looking up the document (use ``document_id`` for that).
+        :param identifier: Set or change the document's identifier. Use ``document_id`` to specify *which* document to update.
         :param attachments: An optional mapping of filename to file-like object, which should be uploaded and stored as attachments on the given document. If a filename already exists, it will be over-written with the new attachment.
 
-        .. note:: If you specify metadata when updating a document, existing metadata will be replaced by the new metadata. To simply clear out the metadata for an existing document, pass an empty ``dict``.
+        .. note::
+            The ``metadata`` and ``identifier`` parameters use sentinel defaults
+            internally. **Omitting** either parameter preserves the existing
+            value. **Explicitly passing** ``None`` (or ``{}``, for metadata)
+            **clears** it. For example:
+
+            .. code-block:: python
+
+                # Preserves existing identifier and metadata:
+                scout.update_document(doc_id, content='new text')
+
+                # Clears the identifier:
+                scout.update_document(doc_id, identifier=None)
+
+                # Clears all metadata:
+                scout.update_document(doc_id, metadata={})
+
+            If you specify ``metadata`` with a non-empty dict, existing metadata
+            is **replaced** entirely (not merged). Use
+            :py:meth:`update_metadata` for merge behavior.
+
+        :raises ValueError: if no fields are provided to update and no attachments are given.
 
     .. py:method:: delete_document(document_id)
 
         Remove a document from the database, as well as all indexes, metadata, and attachments.
 
         :param document_id: The integer document ID, or a user-specified unique identifier.
+        :raises ValueError: if ``document_id`` is not provided.
 
     .. py:method:: get_document(document_id)
 

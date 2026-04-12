@@ -34,9 +34,18 @@ If you installed Scout using ``pip`` then the dependencies will have
 automatically been installed for you. Otherwise be sure to install ``flask``
 and ``peewee``.
 
-Scout also depends on SQLite and the SQLite full-text search extension. SQLite
-is installed by default on most operating systems, and is generally compiled
-with FTS, so typically no additional installation is necessary.
+Scout also depends on SQLite and the SQLite **FTS5** full-text search extension.
+SQLite is installed by default on most operating systems, and is generally
+compiled with FTS5 support (available since SQLite 3.9.0, released 2015), so
+typically no additional installation is necessary. You can verify FTS5 support
+by running:
+
+.. code-block:: console
+
+    python -c "import sqlite3; sqlite3.connect(':memory:').execute('CREATE VIRTUAL TABLE t USING fts5(x)')"
+
+If this command fails, your SQLite build does not include FTS5 and you will
+need to install or compile a version that does.
 
 Optional dependencies
 ^^^^^^^^^^^^^^^^^^^^^

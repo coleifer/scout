@@ -1,8 +1,11 @@
 ![](http://media.charlesleifer.com/blog/photos/scout-logo.png)
 
-[scout](https://scout.readthedocs.io/en/latest/) is a RESTful search server
-written in Python. The search is powered by [SQLite's full-text search extension](http://sqlite.org/fts3.html),
-and the web application utilizes the [Flask](http://flask.pocoo.org) framework.
+**scout** is a restful search server written in python with a focus on using
+lightweight components:
+
+* search powered by [sqlite's full-text search extension](https://sqlite.org/fts5.html)
+* database access coordinated using [peewee ORM](https://docs.peewee-orm.com/)
+* web application built with [flask](https://flask.palletsproject.com/) framework
 
 Scout aims to be a lightweight, RESTful search server in the spirit of
 [ElasticSearch](https://www.elastic.co), powered by the SQLite full-text search
@@ -14,16 +17,18 @@ Scout is simple to use, simple to deploy and *just works*.
 
 Features:
 
-* Multiple search indexes present in a single database.
-* RESTful design for easy indexing and searching.
-* Simple key-based authentication (optional).
-* Lightweight, low resource utilization, minimal setup required.
-* Store search content and arbitrary metadata.
-* Multiple result ranking algorithms, porter stemmer.
-* Besides full-text search, perform complex filtering based on metadata values.
-* Comprehensive unit-tests.
-* Supports SQLite [FTS5](http://sqlite.org/fts5.html).
-* [Documentation hosted on ReadTheDocs](https://scout.readthedocs.io/en/latest/).
+* multiple search indexes present in a single database.
+* restful design for easy indexing and searching.
+* simple key-based authentication (optional).
+* lightweight, low resource utilization, minimal setup required.
+* store search content and arbitrary metadata.
+* attach files or BLOBs to indexed documents.
+* BM25 result ranking, porter stemmer.
+* besides full-text search, perform complex filtering based on metadata values.
+* global attachment search and filtering.
+* comprehensive unit-tests.
+* powered by SQLite [FTS5](http://sqlite.org/fts5.html) for full-text search.
+* [documentation hosted on rtd](https://scout.readthedocs.io/en/latest/).
 
 ## Installation
 
