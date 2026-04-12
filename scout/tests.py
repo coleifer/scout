@@ -2973,33 +2973,467 @@ class TestFTS5EdgeCases(FTS5TestCase):
 
 
 class TestFTS5HTTPIntegration(FTS5TestCase):
+    """
+    Two indexes ('notes' and 'events'), five documents each, with metadata.
+    All searches use ``ordering='content'`` for deterministic alphabetical
+    order unless testing ranking or pagination specifically.
+
+    notes (n0–n4):
+      n0: "python programming tips and tricks"             tag=tutorial  level=beginner
+      n1: "advanced python techniques for data science"    tag=tutorial  level=advanced
+      n2: "javascript frameworks overview and comparison"  tag=reference level=beginner
+      n3: "database optimization strategies for queries"   tag=guide     level=advanced
+      n4: "python machine learning fundamentals"           tag=guide     level=beginner
+
+    events (e0–e4):
+      e0: "python conference keynote speakers announced"   tag=conference year=2024
+      e1: "javascript meetup downtown next friday"         tag=meetup    year=2024
+      e2: "data science summit registration open"          tag=conference year=2025
+      e3: "machine learning workshop for beginners"        tag=workshop  year=2025
+      e4: "annual python developers gathering"             tag=conference year=2025
+    """
+    notes = [
+        'python programming tips and tricks',
+        'advanced python techniques for data science',
+        'javascript frameworks overview and comparison',
+        'database optimization strategies for queries',
+        'python machine learning fundamentals',
+    ]
+    notes_meta = [
+        {'tag': 'tutorial', 'level': 'beginner'},
+        {'tag': 'tutorial', 'level': 'advanced'},
+        {'tag': 'reference', 'level': 'beginner'},
+        {'tag': 'guide', 'level': 'advanced'},
+        {'tag': 'guide', 'level': 'beginner'},
+    ]
+
+    events = [
+        'python conference keynote speakers announced',
+        'javascript meetup downtown next friday',
+        'data science summit registration open',
+        'machine learning workshop for beginners',
+        'annual python developers gathering',
+    ]
+    events_meta = [
+        {'tag': 'conference', 'year': '2024'},
+        {'tag': 'meetup', 'year': '2024'},
+        {'tag': 'conference', 'year': '2025'},
+        {'tag': 'workshop', 'year': '2025'},
+        {'tag': 'conference', 'year': '2025'},
+    ]
+
     def setUp(self):
         super().setUp()
-        for i in range(25):
-            self._add('document number %d about testing' % i, idx=str(i))
+        self.notes_idx = Index.create(name='notes')
+        self.events_idx = Index.create(name='events')
+        for content, meta in zip(self.notes, self.notes_meta):
+            self.notes_idx.index(content=content, **meta)
+        for content, meta in zip(self.events, self.events_meta):
+            self.events_idx.index(content=content, **meta)
 
-    def test_pagination_and_counts(self):
-        data, _ = self._http_search('testing')
-        self.assertEqual(data['filtered_count'], 25)
-        self.assertEqual(len(data['documents']), 10)
-        self.assertEqual(data['search_term'], 'testing')
-        self.assertEqual(data['ranking'], 'bm25')
+    def _search_idx(self, index_name, phrase, **params):
+        """GET /<index_name>/?q=..."""
+        params['q'] = phrase
+        params.setdefault('ranking', SEARCH_BM25)
+        qs = urlencode(params, doseq=True)
+        response = self.app.get('/%s/?%s' % (index_name, qs))
+        return json_load(response.data), response.status_code
 
-        # Filter narrows count.
-        data, _ = self._http_search('testing', idx='5')
-        self.assertEqual(data['filtered_count'], 1)
+    def _search_docs(self, phrase, **params):
+        """GET /documents/?q=..."""
+        params['q'] = phrase
+        params.setdefault('ranking', SEARCH_BM25)
+        qs = urlencode(params, doseq=True)
+        response = self.app.get('/documents/?%s' % qs)
+        return json_load(response.data), response.status_code
 
-        # Documents endpoint.
-        data, status = self._http_search_docs('testing')
-        self.assertEqual(status, 200)
-        self.assertEqual(data['filtered_count'], 25)
+    def test_search_indexes(self):
+        data, _ = self._search_idx('notes', 'python', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],  # advanced python techniques ...
+            self.notes[4],  # python machine learning ...
+            self.notes[0],  # python programming tips ...
+        ])
+
+        data, _ = self._search_idx('events', 'python', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.events[4],  # annual python developers ...
+            self.events[0],  # python conference keynote ...
+        ])
+
+        # Same results with client.
+        data = self.scout.get_index('notes', q='python', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+        data = self.scout.get_index('events', q='python', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.events[4],
+            self.events[0],
+        ])
+
+    def test_index_isolation(self):
+        """A term unique to one index yields nothing in the other."""
+        data, _ = self._search_idx('notes', 'conference', ordering='content')
+        self.assertEqual(self._contents(data), [])
+
+        data = self.scout.get_index('notes', q='conference',
+                                    ordering='content')
+        self.assertEqual(self._contents(data), [])
+
+        data, _ = self._search_idx('events', 'database', ordering='content')
+        self.assertEqual(self._contents(data), [])
+
+        data = self.scout.get_index('events', q='database', ordering='content')
+        self.assertEqual(self._contents(data), [])
+
+    def test_search_all_indexes_via_documents(self):
+        data, _ = self._search_docs('python', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],   # advanced python techniques ...
+            self.events[4],  # annual python developers ...
+            self.events[0],  # python conference keynote ...
+            self.notes[4],   # python machine learning ...
+            self.notes[0],   # python programming tips ...
+        ])
+
+        data = self.scout.search('python', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],   # advanced python techniques ...
+            self.events[4],  # annual python developers ...
+            self.events[0],  # python conference keynote ...
+            self.notes[4],   # python machine learning ...
+            self.notes[0],   # python programming tips ...
+        ])
+
+    def test_documents_single_index_filter(self):
+        data, _ = self._search_docs('python', index='notes',
+                                    ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+        data = self.scout.search('python', index='notes', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+    def test_documents_multiple_index_filters(self):
+        # Stick a python doc in the unused 'default' index.
+        self.index.index(content='python stray document')
+
+        data, _ = self._search_docs('python',
+                                    index=['notes', 'events'],
+                                    ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.events[4],
+            self.events[0],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+        data = self.scout.search('python', index=['notes', 'events'],
+                                 ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.events[4],
+            self.events[0],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+    def test_shared_document_across_indexes(self):
+        """A document in two indexes appears once, reachable from each."""
+        txt = 'cross listed research paper'
+        doc = Document.create(content=txt)
+        self.notes_idx.add_to_index(doc)
+        self.events_idx.add_to_index(doc)
+
+        # Unfiltered.
+        data, _ = self._search_docs('cross listed')
+        self.assertEqual(self._contents(data), [txt])
+
+        data = self.scout.search('cross listed')
+        self.assertEqual(self._contents(data), [txt])
+
+        # Each owning index.
+        for name in ('notes', 'events'):
+            data, _ = self._search_idx(name, 'cross listed')
+            self.assertEqual(self._contents(data), [txt])
+
+            data = self.scout.search('cross listed', index=name)
+            self.assertEqual(self._contents(data), [txt])
+
+            data = self.scout.get_index(name, q='cross listed')
+            self.assertEqual(self._contents(data), [txt])
+
+    def test_metadata_filtering(self):
+        data, _ = self._search_idx('notes', 'python', tag='tutorial',
+                                   ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[0],
+        ])
+
+        data = self.scout.search('python', index='notes', tag='tutorial',
+                                 ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[0],
+        ])
+
+        data, _ = self._search_idx('notes', 'python', tag__ne='tutorial',
+                                   ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[4],  # tag=guide, not tutorial
+        ])
+
+        data = self.scout.search('python', index='notes', tag__ne='tutorial',
+                                 ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[4],
+        ])
+
+        data, _ = self._search_idx('notes', 'python',
+                                   tag__in='tutorial,guide',
+                                   ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+        data = self.scout.search('python', index='notes',
+                                 tag__in='tutorial,guide',
+                                 ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+        data, _ = self._search_idx('events', '*', tag__contains='con',
+                                   ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.events[4],  # tag=conference
+            self.events[2],  # tag=conference
+            self.events[0],  # tag=conference
+        ])
+
+        data = self.scout.search('*', index='events', tag__contains='con',
+                                 ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.events[4],
+            self.events[2],
+            self.events[0],
+        ])
+
+        # Two metadata conditions are ANDed with the FTS match.
+        data, _ = self._search_idx('notes', 'python',
+                                   tag='tutorial', level='beginner',
+                                   ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[0],  # tutorial + beginner
+        ])
+
+        data = self.scout.search('python', index='notes', tag='tutorial',
+                                 level='beginner', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[0],
+        ])
+
+    def test_metadata_filters_in_response(self):
+        data, _ = self._search_idx('events', 'python', tag='conference')
+        self.assertEqual(data['filters'], {'tag': ['conference']})
+
+        data = self.scout.search('python', index='events', tag='conference')
+        self.assertEqual(data['filters'], {'tag': ['conference']})
 
     def test_ranking_options(self):
         data, _ = self._http_search('testing', ranking='none')
         self.assertEqual(data['ranking'], 'none')
 
-        data, status = self._http_search('testing', ranking='invalid')
+        data = self.scout.search('testing', ranking='none')
+        self.assertEqual(data['ranking'], 'none')
+
+        data, _ = self._http_search('testing', ranking='bm25')
+        self.assertEqual(data['ranking'], 'bm25')
+
+        data = self.scout.search('testing', ranking='bm25')
+        self.assertEqual(data['ranking'], 'bm25')
+
+        _, status = self._http_search('testing', ranking='magic')
         self.assertEqual(status, 400)
+
+        resp = self.scout.search('testing', ranking='magic')
+        self.assertTrue(resp['error'].startswith('Unrecognized "ranking" '))
+
+    def test_ordering_results(self):
+        data, _ = self._search_idx('notes', '*', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[3],
+            self.notes[2],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+        data = self.scout.search('*', index='notes', ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[3],
+            self.notes[2],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+        data, _ = self._search_idx('notes', '*', ordering='-content')
+        self.assertEqual(self._contents(data), [
+            self.notes[0],
+            self.notes[4],
+            self.notes[2],
+            self.notes[3],
+            self.notes[1],
+        ])
+
+        data = self.scout.search('*', index='notes', ordering='-content')
+        self.assertEqual(self._contents(data), [
+            self.notes[0],
+            self.notes[4],
+            self.notes[2],
+            self.notes[3],
+            self.notes[1],
+        ])
+
+        data, _ = self._search_idx('notes', 'python', ordering='id')
+        # Notes n0, n1, n4 inserted first, second, fifth -> id order.
+        self.assertEqual(self._contents(data), [
+            self.notes[0],
+            self.notes[1],
+            self.notes[4],
+        ])
+
+        data = self.scout.search('python', index='notes', ordering='id')
+        self.assertEqual(self._contents(data), [
+            self.notes[0],
+            self.notes[1],
+            self.notes[4],
+        ])
+
+        data, _ = self._search_idx('notes', 'python', ordering='-id')
+        self.assertEqual(self._contents(data), [
+            self.notes[4],
+            self.notes[1],
+            self.notes[0],
+        ])
+
+        data = self.scout.search('python', index='notes', ordering='-id')
+        self.assertEqual(self._contents(data), [
+            self.notes[4],
+            self.notes[1],
+            self.notes[0],
+        ])
+
+        data, status = self._http_search('testing', ordering='invalid')
+        self.assertEqual(status, 400)
+
+        data = self.scout.search('testing', ordering='invalid')
+        self.assertTrue(data['error'].startswith('Unrecognized'))
+
+    def test_bm25_scores_present_and_sorted(self):
+        data_idx, _ = self._search_idx('notes', 'python')
+        data_doc, _ = self._search_docs('python', index='notes')
+        data_client = self.scout.search('python', index='notes')
+
+        for data in (data_idx, data_doc, data_client):
+            scores = [d['score'] for d in data['documents']]
+            self.assertEqual(len(scores), 3)
+            for s in scores:
+                self.assertIsInstance(s, float)
+            self.assertEqual(scores, sorted(scores))
+
+    def test_ranking_none_suppresses_scores(self):
+        data_idx, _ = self._search_idx('notes', 'python', ranking='none')
+        data_doc, _ = self._search_docs('python', index='notes',
+                                        ranking='none')
+        data_client = self.scout.search('python', index='notes',
+                                        ranking='none')
+
+        for data in (data_idx, data_doc, data_client):
+            self.assertEqual(len(data['documents']), 3)
+            for doc in data['documents']:
+                self.assertNotIn('score', doc)
+
+            # Docs returned in ID order.
+            self.assertEqual(self._contents(data), [
+                self.notes[0], self.notes[1], self.notes[4],
+            ])
+
+    def test_explicit_ordering_preserves_scores(self):
+        data_idx, _ = self._search_idx('notes', 'python', ordering='id')
+        data_doc, _ = self._search_docs('python', index='notes', ordering='id')
+        data_client = self.scout.search('python', index='notes', ordering='id')
+
+        for data in (data_idx, data_doc, data_client):
+            self.assertEqual(self._contents(data), [
+                self.notes[0],
+                self.notes[1],
+                self.notes[4],
+            ])
+            for doc in data['documents']:
+                self.assertIn('score', doc)
+                self.assertIsInstance(doc['score'], float)
+
+    def test_pagination(self):
+        for i in range(12):
+            self.notes_idx.index(content='testing document %02d' % i)
+
+        expected = sorted(['testing document %02d' % i for i in range(12)])
+
+        # Page 1: first 10 alphabetically.
+        p1_idx, _ = self._search_idx('notes', 'testing', ordering='content')
+        p1_docs, _ = self._search_docs('testing', index='notes',
+                                       ordering='content')
+        p1_client = self.scout.search('testing', index='notes',
+                                      ordering='content')
+        for p1 in (p1_idx, p1_docs, p1_client):
+            self.assertEqual(p1['filtered_count'], 12)
+            self.assertEqual(p1['page'], 1)
+            self.assertEqual(p1['pages'], 2)
+            self.assertIsNotNone(p1['next_url'])
+            self.assertIsNone(p1['previous_url'])
+            self.assertEqual(self._contents(p1), expected[:10])
+
+        # Page 2: remaining 2.
+        p2_idx, _ = self._search_idx('notes', 'testing', ordering='content',
+                                     page=2)
+        p2_docs, _ = self._search_docs('testing', index='notes',
+                                       ordering='content', page=2)
+        p2_client = self.scout.search('testing', index='notes',
+                                      ordering='content', page=2)
+        for p2 in (p2_idx, p2_docs, p2_client):
+            self.assertEqual(p2['page'], 2)
+            self.assertIsNone(p2['next_url'])
+            self.assertIsNotNone(p2['previous_url'])
+            self.assertEqual(self._contents(p2), expected[10:])
+
+    def test_pagination_beyond_last_page(self):
+        p_idx, _ = self._search_idx('notes', 'python', page=99)
+        p_docs, _ = self._search_docs('python', index='notes', page=99)
+        p_client = self.scout.search('python', index='notes', page=99)
+        for p in (p_idx, p_docs, p_client):
+            self.assertEqual(p['page'], 99)
+            self.assertEqual(p['filtered_count'], 3)
+            self.assertEqual(self._contents(p), [])
+
 
 
 def main():

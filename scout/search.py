@@ -143,9 +143,11 @@ class DocumentSearch(object):
         for identifier in sortables:
             is_desc = identifier.startswith('-')
             identifier = identifier.lstrip('-')
-            if identifier in mapping:
-                value = mapping[identifier]
-                accum.append(value.desc() if is_desc else value)
+            if identifier not in mapping:
+                error('Unrecognized ordering: "%s"' % identifier)
+
+            value = mapping[identifier]
+            accum.append(value.desc() if is_desc else value)
 
         if not accum:
             accum = [mapping[default]]
