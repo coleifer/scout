@@ -242,21 +242,16 @@ class TestModelAPIs(BaseTestCase):
         assertSearch('faith thing', [4, 2])
         assertSearch('things', [4, 2])
         assertSearch('blah', [])
-        self.assertRaises(InvalidSearchException, engine.search, '')
 
         assertSearch('believe', [3, 0], SEARCH_BM25)  # Same result.
         assertSearch('faith thing', [4, 2], SEARCH_BM25)  # Same.
         assertSearch('things', [4, 2], SEARCH_BM25)  # Same result.
         assertSearch('blah', [], SEARCH_BM25)  # No results, works.
-        self.assertRaises(InvalidSearchException, engine.search, '',
-                          SEARCH_BM25)
 
         assertSearch('believe', [0, 3], SEARCH_NONE)
         assertSearch('faith thing', [2, 4], SEARCH_NONE)
         assertSearch('things', [2, 4], SEARCH_NONE)
         assertSearch('blah', [], SEARCH_NONE)
-        self.assertRaises(InvalidSearchException, engine.search, '',
-                          SEARCH_NONE)
 
     def test_blob_lifecycle(self):
         idx = Index.create(name='idx')
@@ -2838,10 +2833,6 @@ class TestFTS5ErrorHandling(FTS5TestCase):
         super().setUp()
         for content in self.corpus:
             self._add(content)
-
-    def test_empty_query_error(self):
-        self.assertRaises(InvalidSearchException, engine.search, '')
-        self.assertRaises(InvalidSearchException, engine.search, '   ')
 
     def test_search_errors(self):
         cases = (

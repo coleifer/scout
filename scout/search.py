@@ -19,13 +19,12 @@ class DocumentSearch(object):
     def search(self, phrase, index=None, ranking=SEARCH_BM25, ordering=None,
                **filters):
         phrase = phrase.strip()
-        if not phrase:
-            raise InvalidSearchException('Must provide a search query.')
-        elif phrase == '*' or ranking == SEARCH_NONE:
+        search = phrase not in ('', '*')
+        if not search or ranking == SEARCH_NONE:
             ranking = None
 
         query = Document.select()
-        if phrase != '*':
+        if search:
             try:
                 query = query.where(Document.match(phrase))
             except Exception:

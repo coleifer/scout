@@ -169,7 +169,7 @@ class ScoutView(object):
     def delete(self):
         raise NotImplementedError
 
-    def _search_response(self, index, allow_blank, document_count):
+    def _search_response(self, index, document_count):
         ranking = request.args.get('ranking') or SEARCH_BM25
         if ranking not in RANKING_CHOICES:
             error('Unrecognized "ranking" value. Valid options are %s' %
@@ -179,14 +179,10 @@ class ScoutView(object):
         filters = validator.extract_get_params()
 
         q = request.args.get('q', '').strip()
-        if not q and not allow_blank:
-            error('Search term is required.')
-
         include_score = q and q != '*' and ranking != SEARCH_NONE
 
         try:
-            query = engine.search(q or '*', index, ranking, ordering,
-                                  **filters)
+            query = engine.search(q, index, ranking, ordering, **filters)
         except InvalidSearchException as exc:
             error(str(exc))
 
@@ -222,7 +218,7 @@ class IndexView(ScoutView):
         index = get_object_or_404(Index, Index.name == pk)
         document_count = index.documents.count()
         response = {'name': index.name, 'id': index.id}
-        response.update(self._search_response(index, True, document_count))
+        response.update(self._search_response(index, document_count))
         return jsonify(response)
 
     def list_view(self):
@@ -329,7 +325,7 @@ class DocumentView(_FileProcessingView):
             indexes = None
             document_count = Document.select().count()
 
-        return jsonify(self._search_response(indexes, True, document_count))
+        return jsonify(self._search_response(indexes, document_count))
 
     def create(self):
         data = validator.parse_post(
