@@ -769,6 +769,115 @@ Using the Python client:
 
     scout.delete_document('post-42')
 
+.. _update_metadata:
+
+Update metadata: "/documents/:document-id/metadata/"
+-----------------------------------------------------
+
+The update metadata endpoint merges new metadata into a document's existing
+metadata, rather than replacing it entirely (as happens when you include
+``metadata`` in a document update via :ref:`document_detail`). This is useful
+when you need to add or change individual keys without re-supplying the full
+set.
+
+``POST`` or ``PUT`` a JSON object with a ``metadata`` key. The value should be
+an object of key/value pairs to merge. The merge follows these rules:
+
+* Keys that already exist on the document are overwritten with the new values.
+* New keys are added.
+* Keys whose value is ``null`` are deleted from the document's metadata (if
+  they exist).
+* If ``metadata`` is empty (``{}``), all existing metadata is cleared.
+
+Example ``POST`` request:
+
+.. code-block:: console
+
+    $ curl \
+        -H "Content-Type: application/json" \
+        -d '{"metadata": {"k1": "v1", "k2": "v2"}}' \
+        http://localhost:8000/documents/118/metadata/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.update_metadata(118, k1='v1', k2='v2')
+
+Response:
+
+.. code-block:: javascript
+
+    {
+      "attachments": [],
+      "content": "test zaizee document",
+      "id": 118,
+      "identifier": null,
+      "indexes": [
+        "test-index"
+      ],
+      "metadata": {
+        "k1": "v1",
+        "k2": "v2"
+      }
+    }
+
+Subsequent calls merge into the existing metadata. For example, after the
+request above:
+
+.. code-block:: console
+
+    $ curl \
+        -H "Content-Type: application/json" \
+        -d '{"metadata": {"k1": "v1-updated", "k3": "v3"}}' \
+        http://localhost:8000/documents/118/metadata/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.update_metadata(118, k1='v1-updated', k3='v3')
+
+The resulting metadata would be ``{"k1": "v1-updated", "k2": "v2", "k3": "v3"}``.
+
+To delete a specific key, set its value to ``null``:
+
+.. code-block:: console
+
+    $ curl \
+        -H "Content-Type: application/json" \
+        -d '{"metadata": {"k2": null}}' \
+        http://localhost:8000/documents/118/metadata/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.update_metadata(118, k2=None)
+
+The resulting metadata would be ``{"k1": "v1-updated", "k3": "v3"}``.
+
+To clear all metadata, pass an empty object:
+
+.. code-block:: console
+
+    $ curl \
+        -H "Content-Type: application/json" \
+        -d '{"metadata": {}}' \
+        http://localhost:8000/documents/118/metadata/
+
+Using the Python client:
+
+.. code-block:: python
+
+    scout.update_metadata(118)
+
+.. note::
+    This endpoint differs from updating metadata through the
+    :ref:`document detail <document_detail>` endpoint. The document detail
+    endpoint **replaces** all metadata, while this endpoint **merges** new
+    values into the existing metadata.
+
 .. _attachment_list:
 
 Attachment list: "/documents/:document-id/attachments/"
