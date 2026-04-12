@@ -3176,6 +3176,7 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
             self.assertEqual(self._contents(data), [txt])
 
     def test_metadata_filtering(self):
+        # Tag EQ.
         data, _ = self._search_idx('notes', 'python', tag='tutorial',
                                    ordering='content')
         self.assertEqual(self._contents(data), [
@@ -3190,6 +3191,7 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
             self.notes[0],
         ])
 
+        # Tag NE.
         data, _ = self._search_idx('notes', 'python', tag__ne='tutorial',
                                    ordering='content')
         self.assertEqual(self._contents(data), [
@@ -3202,6 +3204,7 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
             self.notes[4],
         ])
 
+        # Tag IN.
         data, _ = self._search_idx('notes', 'python',
                                    tag__in='tutorial,guide',
                                    ordering='content')
@@ -3220,6 +3223,7 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
             self.notes[0],
         ])
 
+        # Tag CONTAINS.
         data, _ = self._search_idx('events', '*', tag__contains='con',
                                    ordering='content')
         self.assertEqual(self._contents(data), [
@@ -3247,6 +3251,25 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
         data = self.scout.search('python', index='notes', tag='tutorial',
                                  level='beginner', ordering='content')
         self.assertEqual(self._contents(data), [
+            self.notes[0],
+        ])
+
+        # Two metadata conditions for same field are ORed together.
+        data, _ = self._search_idx('notes', 'python',
+                                   tag=['tutorial', 'guide'],
+                                   ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[4],
+            self.notes[0],
+        ])
+
+        data = self.scout.search('python', index='notes',
+                                 tag=['tutorial', 'guide'],
+                                 ordering='content')
+        self.assertEqual(self._contents(data), [
+            self.notes[1],
+            self.notes[4],
             self.notes[0],
         ])
 
