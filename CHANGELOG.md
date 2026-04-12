@@ -5,10 +5,9 @@ This document describes changes to Scout from one release to another.
 ## master
 
 * **Backwards-incompatible**: switch to FTS5. A migration script is
-  provided - just run it once against your database. Note that FTS5 is much
-  stricter about search queries, but also more performant and more powerful.
-  We're going to bet on the future rather than staying with FTS4, even though
-  it is more convenient.
+  provided as well as a command-line option to perform the migration. Note that
+  FTS5 is much stricter about search queries, but also more performant and more
+  powerful.
 * Use a separate doc lookup table for O(log(N)) lookups by identifier instead
   of previous implementation which required table scan of the index. This is a
   huge improvement for apps that utilize application-internal identifiers for
@@ -16,14 +15,18 @@ This document describes changes to Scout from one release to another.
 * Unified behavior around use of application-specific identifiers, eliminating
   the need to use Scout's internal document IDs (unless you prefer to, of
   course).
+* Fixed bugs causing content-addressable Blobdata rows to become orphaned.
+* Added a `client.search()` method to present a more obvious interface for
+  full-text search.
 
-To migrate your index, run the `migrate_fts5.py` script. This creates a **new**
-database rather than modifying in-place, so you can verify the correctness. The
-migration script also sets up the efficient doc lookup table for identifier
-lookups.
+Scout will refuse to run if it detects FTS4, **unless** you specify the
+`--migrate` command-line option. This option instructs Scout to perform the
+migration in-place (if needed) during server startup.
+
+To migrate your index in a separate database, use the `migrate_fts5.py` script.
+This creates a **new** database rather than modifying in-place.
 
 ```bash
-
 $ python migrate_fts5.py /path/to/scout.db /path/to/new.db
 ```
 

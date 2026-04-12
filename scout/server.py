@@ -6,6 +6,7 @@ import sys
 from flask import Flask
 from werkzeug.serving import run_simple
 
+from scout.exceptions import ImproperlyConfigured
 from scout.exceptions import InvalidRequestException
 from scout.models import database
 from scout.models import Attachment
@@ -34,7 +35,8 @@ def create_server(config=None, config_file=None):
 
     # Initialize the SQLite database.
     initialize_database(app.config.get('DATABASE') or 'scout.db',
-                        pragmas=app.config.get('SQLITE_PRAGMAS') or None)
+                        pragmas=app.config.get('SQLITE_PRAGMAS') or None,
+                        migrate=app.config.get('_DB_MIGRATE', False))
     register_views(app)
 
     @app.errorhandler(InvalidRequestException)
@@ -54,22 +56,81 @@ def create_server(config=None, config_file=None):
     return app
 
 
-def initialize_database(database_file, pragmas=None):
+def initialize_database(database_file, pragmas=None, migrate=False):
     database.init(database_file, pragmas=pragmas)
-    try:
-        meth = database.execution_context
-    except AttributeError:
-        meth = database
 
-    with meth:
-        database.create_tables([
-            Attachment,
-            BlobData,
-            DocLookup,
-            Document,
-            Index,
-            IndexDocument,
-            Metadata])
+    with database.connection_context():
+        # Check if old schema.
+        if is_fts4(database):
+            logger.error('FTS4 schema found, migration required.')
+            if not migrate:
+                raise ImproperlyConfigured(
+                    'Your database uses FTS4, but Scout requires FTS5. '
+                    'You can migrate your database using the provided '
+                    'migrate_fts5.py script or initialize the server with '
+                    '--migrate')
+            else:
+                logger.warning('Migrating FTS4 to FTS5')
+                try:
+                    with database.atomic():
+                        migrate_schema(database)
+                except Exception:
+                    logger.exception('Error applying migration')
+                    raise
+
+        with database.atomic():
+            database.create_tables([
+                Attachment,
+                BlobData,
+                DocLookup,
+                Document,
+                Index,
+                IndexDocument,
+                Metadata])
+
+def is_fts4(database):
+    # Check if old schema.
+    curs = database.execute_sql('select sql from sqlite_master where '
+                                'name = ?', ('main_document',))
+    res = curs.fetchone()
+    if res is not None:
+        sql, = res
+        return 'USING FTS4' in sql
+    return False
+
+def migrate_schema(database):
+    conn = database.connection()
+    conn.execute('pragma foreign_keys=0')
+
+    logger.info('Creating temp table to hold FTS4 data')
+    conn.execute('CREATE TEMP TABLE "_tmp" ("docid", "content", "identifier")')
+    conn.execute('INSERT INTO "_tmp" ("docid", "content", "identifier") '
+                 'SELECT "docid", "content", "identifier" '
+                 'FROM "main_document"')
+    conn.execute('DROP TABLE main_document')
+    logger.info('Creating new FTS5 table')
+    conn.execute('CREATE VIRTUAL TABLE "main_document" USING fts5 ('
+                 '"content", "identifier", prefix=\'2,3\', '
+                 'tokenize="porter unicode61")')
+    logger.info('Populating FTS5 table')
+    conn.execute('INSERT INTO "main_document" '
+                 '("rowid", "content", "identifier") '
+                 'SELECT "docid", "content", "identifier" FROM "_tmp"')
+    conn.execute('DROP TABLE "_tmp"')
+
+    logger.info('Creating doc lookup table')
+    conn.execute('CREATE TABLE IF NOT EXISTS "main_doclookup" ('
+                 '"rowid" INTEGER NOT NULL PRIMARY KEY, '
+                 '"identifier" TEXT NOT NULL)')
+    conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS '
+                 '"main_doclookup_identifier" '
+                 'ON "main_doclookup" ("identifier")')
+    logger.info('Populating doc lookup table')
+    conn.execute('INSERT OR IGNORE INTO "main_doclookup" '
+                 '("rowid", "identifier") '
+                 'SELECT "rowid", "identifier" FROM "main_document" '
+                 'WHERE "identifier" IS NOT NULL AND "identifier" != ?', ('',))
+    logger.info('Finished migration successfully.')
 
 
 def run(app):
@@ -109,11 +170,6 @@ def get_option_parser():
         '--url-prefix',
         dest='url_prefix',
         help='URL path to prefix Scout API.')
-    parser.add_option(
-        '-s',
-        '--stem',
-        dest='stem',
-        help='Specify stemming algorithm for content.')
     parser.add_option(
         '-d',
         '--debug',
@@ -167,6 +223,11 @@ def get_option_parser():
         dest='max_request_size',
         help='Maximum size of request body in bytes, default 64MB',
         type='int')
+    parser.add_option(
+        '--migrate',
+        action='store_true',
+        dest='migrate',
+        help='Migrate FTS4 to FTS5 and update schema in-place.')
     return parser
 
 def parse_options():
@@ -214,10 +275,9 @@ def parse_options():
         if options.paginate_by < 1 or options.paginate_by > 1000:
             panic('paginate-by must be between 1 and 1000')
         config['PAGINATE_BY'] = options.paginate_by
-    if options.stem:
-        if options.stem not in ('simple', 'porter'):
-            panic('Unrecognized stemmer. Must be "porter" or "simple".')
-        config['STEM'] = options.stem
+
+    if options.migrate:
+        config['_DB_MIGRATE'] = True
 
     return create_server(config, config_file)
 

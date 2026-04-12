@@ -1,9 +1,8 @@
 from flask import jsonify
 
 
+class ImproperlyConfigured(Exception): pass
 class InvalidSearchException(ValueError): pass
-
-
 class InvalidRequestException(Exception):
     def __init__(self, error_message, code=None):
         self.error_message = error_message
