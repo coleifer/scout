@@ -57,8 +57,14 @@ class Document(FTS5Model):
             (Metadata
              .replace_many([
                  {'key': key, 'value': value, 'document': self.rowid}
-                 for key, value in metadata.items()])
+                 for key, value in metadata.items() if value is not None])
              .execute())
+
+            nulls = [k for k in metadata if metadata[k] is None]
+            if nulls:
+                Metadata.delete().where(
+                    (Metadata.document == self.rowid) &
+                    (Metadata.key.in_(nulls))).execute()
 
     def delete_metadata(self):
         Metadata.delete().where(Metadata.document == self.rowid).execute()

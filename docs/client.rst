@@ -97,6 +97,40 @@ Scout comes with a simple Python client. This document describes the client API.
 
         :param document_id: The integer document ID, or a user-specified unique identifier.
 
+    .. py:method:: update_metadata(document_id, **metadata)
+
+        Update metadata for the document by merging the new values into the
+        existing metadata.
+
+        :param document_id: The integer document ID, or a user-specified unique identifier.
+        :param metadata: Arbitrary key/value metadata.
+
+        Metadata is merged into the document's existing metadata using the
+        following rules:
+
+        Keys that exist will be overwritten with new user-provided values,
+        unless the user-provided value is ``None`` in which case that key will
+        be deleted (if it exists on the document). If no new data is specified
+        then all existing document metadata will be cleared.
+
+        Example:
+
+        .. code-block:: python
+
+            # Assume Document 1's metadata is empty to begin with: {}
+
+            client.update_metadata(1, k1='v1', k2='v2')
+            # metadata = {'k1': 'v1', 'k2': 'v2'}
+
+            client.update_metadata(1, k1='v1x', k3='v3')
+            # metadata = {'k1': 'v1x', 'k2': 'v2', 'k3': 'v3'}
+
+            client.update_metadata(1, k1=None, k4='v4', k99=None)
+            # metadata = {'k2': 'v2', 'k3': 'v3', 'k4': 'v4'}
+
+            client.update_metadata(1)  # Clears metadata.
+            # metadata = {}
+
     .. py:method:: get_documents(**kwargs)
 
         Retrieve a paginated list of all documents in the database, regardless of index. This method can also be used to perform full-text search queries across the entire database of documents, or a subset of indexes.

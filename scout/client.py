@@ -198,10 +198,11 @@ class Scout(object):
         return self.delete('/documents/%s/' % document_id)
 
     def get_document(self, document_id=None):
-        if not document_id:
-            raise ValueError('`document_id` must be provided.')
-
         return self.get('/documents/%s/' % document_id)
+
+    def update_metadata(self, document_id, **metadata):
+        return self.post('/documents/%s/metadata/' % document_id, {
+            'metadata': metadata})
 
     def attach_files(self, document_id, attachments):
         return self.post_files('/documents/%s/attachments/' % document_id,

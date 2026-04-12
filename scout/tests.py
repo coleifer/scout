@@ -2221,6 +2221,23 @@ class TestScoutClient(BaseTestCase):
         result = self.scout.delete_document(doc['id'])
         self.assertEqual(result, {'success': True})
 
+    def test_update_metadata(self):
+        self.scout.create_index('idx')
+        doc = self.scout.create_document('test', 'idx')
+        resp = self.scout.update_metadata(doc['id'], k1='v1', k2='v2')
+        self.assertEqual(resp['metadata'], {'k1': 'v1', 'k2': 'v2'})
+
+        resp = self.scout.update_metadata(doc['id'], k1='v1x', k3='v3')
+        self.assertEqual(resp['metadata'], {
+            'k1': 'v1x', 'k2': 'v2', 'k3': 'v3'})
+
+        resp = self.scout.update_metadata(doc['id'], k1=None, k4='v4', k5=None)
+        self.assertEqual(resp['metadata'], {
+            'k2': 'v2', 'k3': 'v3', 'k4': 'v4'})
+
+        resp = self.scout.update_metadata(doc['id'])
+        self.assertEqual(resp['metadata'], {})
+
     def test_update_document_clear_identifier(self):
         self.scout.create_index('idx')
         doc = self.scout.create_document('text', 'idx', identifier='removable')
