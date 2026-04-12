@@ -5,11 +5,13 @@ import sys
 from scout.server import parse_options
 
 
-# Create WSGI app using command-line options.
+# Module-level app creation: parse_options() reads sys.argv and returns a
+# configured Flask app.  This runs on import so that external WSGI servers
+# can reference the app object directly (e.g. gunicorn gevent_server:app).
 app = parse_options()
 
-if __name__ == '__main__':
-    # Serve app using gevent WSGI server.
+
+def main():
     from gevent.pool import Pool
     from gevent.pywsgi import WSGIServer
 
@@ -21,3 +23,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         app.logger.info('Shutting down!')
         sys.exit(0)
+
+
+if __name__ == '__main__':
+    main()

@@ -5,7 +5,7 @@ lightweight components:
 
 * search powered by [sqlite's full-text search extension](https://sqlite.org/fts5.html)
 * database access coordinated using [peewee ORM](https://docs.peewee-orm.com/)
-* web application built with [flask](https://flask.palletsproject.com/) framework
+* web application built with [flask](https://flask.palletsprojects.com/) framework
 
 Scout aims to be a lightweight, RESTful search server in the spirit of
 [ElasticSearch](https://www.elastic.co), powered by the SQLite full-text search
@@ -31,6 +31,17 @@ Features:
 * [documentation hosted on rtd](https://scout.readthedocs.io/en/latest/).
 
 ## Installation
+
+Scout requires **Python 3.8+** and a version of SQLite compiled with the
+**FTS5** extension (included by default since SQLite 3.9.0, released 2015). You
+can verify FTS5 support by running:
+
+```console
+$ python -c "import sqlite3; sqlite3.connect(':memory:').execute('CREATE VIRTUAL TABLE t USING fts5(x)')"
+```
+
+If this command fails, your SQLite build does not include FTS5 and you will
+need to install or compile a version that does.
 
 Scout can be installed from PyPI using `pip` or from source using `git`. Should
 you install from PyPI you will run the latest version, whereas installing from
@@ -60,8 +71,8 @@ $ pip install .
 ```
 
 Using either of the above methods will also ensure the project's Python
-dependencies are installed: [flask](http://flask.pocoo.org) and
-[peewee](http://docs.peewee-orm.com).
+dependencies are installed: [flask](https://flask.palletsprojects.com/) and
+[peewee](https://docs.peewee-orm.com).
 
 [Check out the documentation](https://scout.readthedocs.io/en/latest/) for more information about the project.
 
@@ -90,19 +101,29 @@ $ scout_wsgi /path/to/search-index.db
 
 ## Docker
 
+The Docker image runs Scout on port **9004** (rather than the default 8000)
+using the built-in gevent WSGI server. The database path defaults to
+`/data/search-index.db` and is controlled by the `SCOUT_DATABASE` environment
+variable. The `/data` directory is declared as a volume.
+
 To run scout using docker, you can use the provided Dockerfile or simply pull
 the `coleifer/scout` image from dockerhub:
 
 ```console
-
-$ docker run -it --rm -p 9004:9004 coleifer/scout
-# scout is now running on 0.0.0.0:9004
+$ docker run -d \
+    --name scout \
+    -p 9004:9004 \
+    -v scout-data:/data \
+    coleifer/scout
+# scout is now running on localhost:9004
 ```
+
+> **Note:** Always mount a volume to `/data` (as shown above) to persist your
+> search index across container restarts.
 
 Build your own image locally and run it:
 
 ```console
-
 $ cd scout/docker
 $ docker build -t scout .
 $ docker run -d \
@@ -110,4 +131,39 @@ $ docker run -d \
     -p 9004:9004 \
     -v scout-data:/data \
     scout
+```
+
+### Overriding settings
+
+You can pass additional Scout CLI flags by appending them to `docker run`:
+
+```console
+$ docker run -d \
+    -p 9004:9004 \
+    -v scout-data:/data \
+    coleifer/scout \
+    -k my-secret-api-key \
+    --paginate-by 100
+```
+
+You can override the database location with the `SCOUT_DATABASE` environment
+variable:
+
+```console
+$ docker run -d \
+    -p 9004:9004 \
+    -e SCOUT_DATABASE=/data/my-index.db \
+    -v scout-data:/data \
+    coleifer/scout
+```
+
+### Migrating an existing database
+
+If you are upgrading from an older Scout version that used FTS4, you can run
+the migration inside the container:
+
+```console
+$ docker run --rm \
+    -v scout-data:/data \
+    coleifer/scout --migrate
 ```
