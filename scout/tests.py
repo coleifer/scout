@@ -2568,6 +2568,7 @@ class FTS5TestCase(BaseTestCase):
         app.config['AUTHENTICATION'] = None
         self.app = app.test_client()
         self.index = Index.create(name='default')
+        self.scout = FlaskScout(app)
 
     def _add(self, content, identifier=None, **metadata):
         return self.index.index(content=content, identifier=identifier,
@@ -2607,6 +2608,12 @@ class FTS5TestCase(BaseTestCase):
         self.assertEqual(self._contents(data),
                          [self.corpus[i] for i in expected_indexes])
         return data
+
+    def assertClientResults(self, phrase, expected_indexes, **params):
+        resp = self.scout.search(phrase, **params)
+        self.assertEqual([doc['content'] for doc in resp['documents']],
+                         [self.corpus[i] for i in expected_indexes])
+        return resp
 
 
 class TestScopeToContent(FTS5TestCase):
@@ -2810,6 +2817,16 @@ class TestFTSQueries(FTS5TestCase):
             data, status = self._http_search_docs(phrase)
             self.assertEqual(status, 200)
             self.assertEqual(len(data['documents']), n, phrase)
+
+    def test_client_queries(self):
+        self.assertClientResults('believe', [3, 0])
+        self.assertClientResults('man OR hope', [0, 4])
+        self.assertClientResults('believe NOT nothing', [3])
+        self.assertClientResults('"true faith"', [1])
+        self.assertClientResults('beli*', [3, 0])
+        self.assertClientResults('NEAR(true faith, 1)', [1])
+        self.assertClientResults('^faith', [3, 4])
+        self.assertClientResults('(hope OR man) AND faith', [0, 4])
 
 
 class TestFTS5ErrorHandling(FTS5TestCase):
