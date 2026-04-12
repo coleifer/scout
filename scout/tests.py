@@ -1334,27 +1334,25 @@ class TestHTTPViews(HTTPTestCase):
         resp = self.get_json('/documents/3/')
         self.assertEqual(resp['content'], 'filler-2')
 
-    def _create(self, content, identifier=None, **meta):
-        payload = {'content': content, 'index': 'idx'}
-        if identifier is not None:
-            payload['identifier'] = identifier
-        if meta:
-            payload['metadata'] = meta
-        return self.post_json('/documents/', payload)
-
-    def _update(self, pk, **data):
-        return self.put_json('/documents/%s/' % pk, data)
-
     def test_concurrent_style_interleaved_updates(self):
         Index.create(name='idx')
-        a = self._create('aaa', identifier='a-id')['id']
-        b = self._create('bbb', identifier='b-id')['id']
+        a = self.post_json('/documents/', {
+            'content': 'aaa',
+            'identifier': 'a-id',
+            'index': 'idx'})['id']
+        b = self.post_json('/documents/', {
+            'content': 'bbb',
+            'identifier': 'b-id',
+            'index': 'idx'})['id']
+
+        def _update(pk, **data):
+            return self.put_json('/documents/%s/' % pk, data)
 
         # Interleave: update a, update b, update a, update b.
-        self._update(a, content='a2')
-        self._update(b, identifier='b-id-2')
-        self._update(a, identifier='a-id-2')
-        self._update(b, content='b2')
+        _update(a, content='a2')
+        _update(b, identifier='b-id-2')
+        _update(a, identifier='a-id-2')
+        _update(b, content='b2')
 
         self.assertLookupMaps('a-id-2', a)
         self.assertLookupMaps('b-id-2', b)
@@ -1366,10 +1364,10 @@ class TestHTTPViews(HTTPTestCase):
         self.assertEqual(Document.select().count(), 2)
 
         # Interleave: update a, update b, update a, update b.
-        self._update('a-id-2', content='a3')
-        self._update('b-id-2', identifier='b-id-3')
-        self._update('a-id-2', identifier='a-id-3')
-        self._update('b-id-3', content='b3')
+        _update('a-id-2', content='a3')
+        _update('b-id-2', identifier='b-id-3')
+        _update('a-id-2', identifier='a-id-3')
+        _update('b-id-3', content='b3')
 
         self.assertLookupMaps('a-id-3', a)
         self.assertLookupMaps('b-id-3', b)
@@ -1386,11 +1384,16 @@ class TestHTTPViews(HTTPTestCase):
         safe_idents = ('has-dashes', 'dots.in.it', 'under_scores',
                        'key:value', 'MixedCase123')
         for ident in safe_idents:
-            doc_id = self._create('content', identifier=ident)['id']
+            resp = self.post_json('/documents/', {
+                'content': 'c',
+                'identifier': ident,
+                'index': 'idx'})
+            pk = resp['id']
+
             # Lookup by identifier through URL works.
             resp = self.get_json('/documents/%s/' % ident)
-            self.assertEqual(resp['id'], doc_id)
-            self.assertLookupMaps(ident, doc_id)
+            self.assertEqual(resp['id'], pk)
+            self.assertLookupMaps(ident, pk)
             self.delete('/documents/%s/' % ident)
             self.assertLookupCount(0)
 
@@ -1399,27 +1402,35 @@ class TestHTTPViews(HTTPTestCase):
         unsafe_idents = ('slashes/in/it', 'q?mark', 'pct%20enc',
                          'has spaces')
         for ident in unsafe_idents:
-            resp = self._create('content', identifier=ident)
+            resp = self.post_json('/documents/', {
+                'content': 'c',
+                'identifier': ident,
+                'index': 'idx'})
             self.assertTrue('error' in resp)
 
     def test_create_with_identifier_matching_other_rowid(self):
         Index.create(name='idx')
-        r1 = self._create('first doc')  # rowid 1
-        r2 = self._create('second doc', identifier=str(r1['id']))
+        resp = self.post_json('/documents/', {
+            'content': 'first doc',
+            'index': 'idx'})
+        pk = resp['id']
+
+        resp = self.post_json('/documents/', {
+            'content': 'second doc',
+            'identifier': str(pk),
+            'index': 'idx'})
+        pk2 = resp['id']
 
         # Two separate documents exist.
-        self.assertNotEqual(r1['id'], r2['id'])
+        self.assertNotEqual(pk, pk2)
         self.assertEqual(Document.select().count(), 2)
 
         # Identifier '1' resolves to r2, not r1.
-        resp = self.get_json('/documents/%s/' % str(r1['id']))
-        self.assertEqual(resp['id'], r2['id'])
+        resp = self.get_json('/documents/%s/' % pk)
+        self.assertEqual(resp['id'], pk2)
 
-        # r1 is shadowed — '/documents/1/' returns r2 because identifier
-        # takes precedence.  r1 is only reachable after clearing r2's
-        # identifier.
-        self._update(r2['id'], identifier='renamed')
-        resp = self.get_json('/documents/%s/' % str(r1['id']))
+        self.post_json('/documents/%s/' % pk, {'identifier': 'renamed'})
+        resp = self.get_json('/documents/%s/' % pk)
         self.assertEqual(resp['content'], 'first doc')
 
 
