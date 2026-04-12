@@ -2368,27 +2368,45 @@ class TestScoutClient(BaseTestCase):
         result = self.scout.get_documents(index=['a'])
         self.assertEqual(result['document_count'], 2)
 
+        # Filter by multiple indexes.
+        result = self.scout.get_documents(index=['a', 'b'])
+        self.assertEqual(result['document_count'], 3)
+
+        # Filter by index as string.
+        result = self.scout.get_documents(index='a')
+        self.assertEqual(result['document_count'], 2)
+
         # Search via get_index.
         results = self.scout.get_index('a', q='bravo')
         self.assertEqual(len(results['documents']), 1)
 
-        # Search via get_documents.
-        results = self.scout.get_documents(q='bravo')
-        self.assertEqual(len(results['documents']), 2)
-        results = self.scout.get_documents(q='bravo', index='a')
-        self.assertEqual(len(results['documents']), 1)
+        # Search via get_documents() and search().
+        for method in (self.scout.get_documents, self.scout.search):
+            results = method(q='bravo')
+            self.assertEqual(len(results['documents']), 2)
+            results = method(q='bravo', index='a')
+            self.assertEqual(len(results['documents']), 1)
 
         # Metadata filter.
         results = self.scout.get_index('a', q='*', color='red')
         self.assertEqual(len(results['documents']), 2)
 
-        # Ranking.
+        # Ranking via get_index().
         results = self.scout.get_index('a', q='bravo', ranking='bm25')
         for doc in results['documents']:
             self.assertIn('score', doc)
         results = self.scout.get_index('a', q='bravo', ranking='none')
         for doc in results['documents']:
             self.assertNotIn('score', doc)
+
+        # Ranking via get_documents() and search().
+        for method in (self.scout.get_documents, self.scout.search):
+            results = method(q='bravo', ranking='bm25')
+            for doc in results['documents']:
+                self.assertIn('score', doc)
+            results = method(q='bravo', ranking='none')
+            for doc in results['documents']:
+                self.assertNotIn('score', doc)
 
         # Pagination.
         for i in range(10):

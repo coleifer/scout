@@ -185,7 +185,8 @@ class ScoutView(object):
         include_score = q and q != '*' and ranking != SEARCH_NONE
 
         try:
-            query = engine.search(q or '*', index, ranking, ordering, **filters)
+            query = engine.search(q or '*', index, ranking, ordering,
+                                  **filters)
         except InvalidSearchException as exc:
             error(str(exc))
 

@@ -159,6 +159,12 @@ class Scout(object):
     def get_documents(self, **kwargs):
         return self.get('/documents/', **kwargs)
 
+    def search(self, q, **kwargs):
+        """
+        Perform a search of the full-text index.
+        """
+        return self.get('/documents/', q=q, **kwargs)
+
     def create_document(self, content, indexes, identifier=None,
                         attachments=None, **metadata):
         if not isinstance(indexes, (list, tuple)):

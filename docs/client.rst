@@ -20,6 +20,31 @@ Scout comes with a simple Python client. This document describes the client API.
         >>> from scout.client import Scout
         >>> scout = Scout('https://search.my-site.com/', key='secret!')
 
+    .. py:method:: search(q, **kwargs)
+
+        Retrieve a paginated list of documents matching the search query.
+        Searches can be restricted to one or more indexes by passing ``index=``
+        either as a ``str`` (single index) or a ``list`` of index names.
+
+        The following parameters are supported:
+
+        :param q: full-text search query using FTS5 query syntax. Use ``'*'`` to retrieve all documents.
+        :param ordering: columns to sort results by. By default, when you perform a search the results will be ordered by relevance.
+        :param index: one or more index names to restrict the results to.
+        :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``none``.
+        :param page: page number of results to retrieve.
+        :param **filters: Arbitrary key/value pairs used to filter the metadata.
+
+        The :ref:`metadata_filters` section describes how to use key/value pairs to construct filters on the document's metadata.
+
+        See :ref:`document_list` for more information.
+
+        .. note::
+            This method is a thin wrapper around the :py:meth:`Client.get_documents`
+            method. The behavior is identical except that the ``search()``
+            method makes the ``q=`` parameter required.
+
+
     Index methods
     -------------
 
@@ -51,7 +76,7 @@ Scout comes with a simple Python client. This document describes the client API.
 
         :param q: full-text search query to be run over the documents in this index.
         :param ordering: columns to sort results by. By default, when you perform a search the results will be ordered by relevance.
-        :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``simple`` or ``none``.
+        :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``none``.
         :param page: page number of results to retrieve.
         :param **filters: Arbitrary key/value pairs used to filter the metadata.
 
@@ -140,7 +165,7 @@ Scout comes with a simple Python client. This document describes the client API.
         :param q: full-text search query to be run over the documents in this index.
         :param ordering: columns to sort results by. By default, when you perform a search the results will be ordered by relevance.
         :param index: one or more index names to restrict the results to.
-        :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``simple`` or ``none``.
+        :param ranking: ranking algorithm to use. By default this is ``bm25``, however you can specify ``none``.
         :param page: page number of results to retrieve.
         :param **filters: Arbitrary key/value pairs used to filter the metadata.
 

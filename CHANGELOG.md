@@ -13,6 +13,19 @@ This document describes changes to Scout from one release to another.
   of previous implementation which required table scan of the index. This is a
   huge improvement for apps that utilize application-internal identifiers for
   indexed docs.
+* Unified behavior around use of application-specific identifiers, eliminating
+  the need to use Scout's internal document IDs (unless you prefer to, of
+  course).
+
+To migrate your index, run the `migrate_fts5.py` script. This creates a **new**
+database rather than modifying in-place, so you can verify the correctness. The
+migration script also sets up the efficient doc lookup table for identifier
+lookups.
+
+```bash
+
+$ python migrate_fts5.py /path/to/scout.db /path/to/new.db
+```
 
 [View commits](https://github.com/coleifer/scout/compare/3.1.0...master)
 
