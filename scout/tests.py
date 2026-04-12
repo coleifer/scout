@@ -132,6 +132,9 @@ class TestModelAPIs(BaseTestCase):
         self.assertEqual(idx_doc.__data__['document'], doc.get_id())
         self.assertEqual(idx_doc.__data__['index'], self.index.id)
 
+        # No identifier so DocLookup empty.
+        self.assertEqual(DocLookup.select().count(), 0)
+
     def test_index_with_metadata(self):
         """
         Test to ensure that content can be indexed with arbitrary key
@@ -175,6 +178,16 @@ class TestModelAPIs(BaseTestCase):
         self.assertEqual(idx_doc.__data__['document'], u_doc_db.get_id())
         self.assertEqual(idx_doc.__data__['index'], self.index.id)
 
+        # Metadata is cleared if empty.
+        update2 = self.index.index('updated doc 2', document=doc)
+        self.assertEqual(Document.select().count(), 1)
+        u_doc_db = (Document
+                    .select(Document._meta.primary_key, Document.content)
+                    .get())
+        self.assertEqual(u_doc_db.content, 'updated doc 2')
+        self.assertEqual(u_doc_db.get_id(), doc_db.get_id())
+        self.assertEqual(u_doc_db.metadata, {})
+
     def test_multi_index(self):
         """
         Test that documents can be stored in multiple indexes.
@@ -205,8 +218,7 @@ class TestModelAPIs(BaseTestCase):
 
     def test_search(self):
         """
-        Basic tests for simple string searches of a single index. Use both
-        the simple and bm25 ranking algorithms.
+        Basic tests for simple string searches of a single index.
         """
         for idx, content in enumerate(self.corpus):
             self.index.index(content=content)
@@ -270,6 +282,12 @@ class TestModelAPIs(BaseTestCase):
         q = Metadata.select().where(Metadata.document == doc.rowid)
         self.assertEqual(q.count(), 1)
 
+        # Empty value clears.
+        for m in ({}, None):
+            doc.metadata = m
+            q = Metadata.select().where(Metadata.document == doc.rowid)
+            self.assertEqual(q.count(), 0)
+
     def test_model_dedup_on_identifier(self):
         doc1 = self.index.index('first', identifier='dedup')
         doc2 = self.index.index('second', identifier='dedup')
@@ -278,10 +296,11 @@ class TestModelAPIs(BaseTestCase):
         refreshed = Document.all().where(Document.rowid == doc1.rowid).get()
         self.assertEqual(refreshed.content, 'second')
 
-    def test_reindex_without_identifier_preserves_it(self):
+    def test_identifier_preserved_reindex(self):
         doc = self.index.index('original', identifier='keep-me')
         self.assertEqual(DocLookup.select().count(), 1)
 
+        # Identifier not overwritten.
         self.index.index('updated content', document=doc)
         self.assertEqual(DocLookup.select().count(), 1)
         self.assertEqual(DocLookup.get().identifier, 'keep-me')
@@ -322,7 +341,7 @@ class TestModelSearch(BaseTestCase):
                     idx='%02d' % i,
                     idx10=i % 10,
                     name=messages[i % 4],
-                )
+                    identifier='doc:%s' % i)
 
     def assertResults(self, filters, expected):
         results = engine.search('testing', index=self.index, **filters)
@@ -345,8 +364,10 @@ class TestModelSearch(BaseTestCase):
 
     def test_model_filtering(self):
         self.populate()
+
+        # Comma-separated get normalized.
         self.assertResults(
-            {'idx__ge': 95, 'idx10__in': '5,8,9,1, 3'},
+            {'idx__ge': 95, 'idx10__in': '5 , 8,9,1, 3'},
             ['95', '98', '99'])
 
         results = self.assertResults(
@@ -414,8 +435,8 @@ class TestModelSearch(BaseTestCase):
             '2014-09-01',
         ])
 
-        docs = engine.search(
-            '*', index=self.index, dob__ge='2008-01-01', dob__lt='2009-01-01')
+        docs = engine.search('*', index=self.index, dob__ge='2008-01-01',
+                             dob__lt='2009-01-01')
         self.assertEqual(sorted([doc.metadata['dob'] for doc in docs]), [
             '2008-04-01',
             '2008-04-20',
@@ -438,29 +459,6 @@ class TestModelSearch(BaseTestCase):
             '2008-04-01',
         ])
 
-    def test_invalid_op(self):
-        with self.assertRaises(InvalidRequestException):
-            engine.search('testing', index=self.index, name__xx='missing')
-
-    def test_search_with_ranking_not_treated_as_metadata(self):
-        self.populate()
-        results = list(engine.search('testing', index=self.index,
-                                     ranking='bm25', k1='k1-1', page=1))
-        self.assertTrue(len(results) > 0)
-        self.assertTrue(results[0].score <= 0)
-
-    def test_apply_sorting(self):
-        self.populate()
-        results = list(engine.search(
-            'testing', index=self.index, ordering='-id'))
-        ids = [doc.rowid for doc in results]
-        self.assertEqual(ids, sorted(ids, reverse=True))
-
-        results2 = list(engine.search(
-            'testing', index=self.index, ordering='id'))
-        ids2 = [doc.rowid for doc in results2]
-        self.assertEqual(ids2, sorted(ids2))
-
     def test_metadata_filter_like_exprs(self):
         self.populate()
         results = list(engine.search(
@@ -478,6 +476,53 @@ class TestModelSearch(BaseTestCase):
         names = sorted(set(doc.metadata['name'] for doc in results))
         self.assertEqual(names, ['huey mickey'])
 
+    def test_invalid_op(self):
+        with self.assertRaises(InvalidRequestException):
+            engine.search('testing', index=self.index, name__xx='missing')
+
+    def test_search_with_ranking_not_treated_as_metadata(self):
+        self.populate()
+        results = list(engine.search('testing', index=self.index,
+                                     ranking='bm25', k1='k1-1', page=1))
+        self.assertTrue(len(results) > 0)
+        self.assertTrue(results[0].score <= 0)
+
+    def test_apply_sorting(self):
+        self.populate()
+
+        # Id.
+        results = list(engine.search(
+            'testing', index=self.index, ordering='-id'))
+        ids = [doc.rowid for doc in results]
+        self.assertEqual(ids, sorted(ids, reverse=True))
+
+        results = list(engine.search(
+            'testing', index=self.index, ordering='id'))
+        ids = [doc.rowid for doc in results]
+        self.assertEqual(ids, sorted(ids))
+
+        # Identifier.
+        results = list(engine.search(
+            'testing', index=self.index, ordering='-identifier'))
+        identifiers = [doc.identifier for doc in results]
+        self.assertEqual(identifiers, sorted(identifiers, reverse=True))
+
+        results = list(engine.search(
+            'testing', index=self.index, ordering='identifier'))
+        identifiers = [doc.identifier for doc in results]
+        self.assertEqual(identifiers, sorted(identifiers))
+
+        # Content.
+        results = list(engine.search(
+            'testing', index=self.index, ordering='-content'))
+        contents = [doc.content for doc in results]
+        self.assertEqual(contents, sorted(contents, reverse=True))
+
+        results = list(engine.search(
+            'testing', index=self.index, ordering='content'))
+        contents = [doc.content for doc in results]
+        self.assertEqual(contents, sorted(contents))
+
 
 class TestDocLookupModelLevel(BaseTestCase):
     def setUp(self):
@@ -486,7 +531,7 @@ class TestDocLookupModelLevel(BaseTestCase):
 
     def test_numeric_identifier_vs_rowid(self):
         """Numeric identifier must take precedence over rowid."""
-        # Create 3 docs without identifiers — rowids 1, 2, 3.
+        # Create 3 docs without identifiers - rowids 1, 2, 3.
         doc1 = self.index.index(content='rowid-1')
         doc2 = self.index.index(content='rowid-2')
         doc3 = self.index.index(content='rowid-3')
@@ -494,7 +539,7 @@ class TestDocLookupModelLevel(BaseTestCase):
         self.assertEqual(doc2.rowid, 2)
         self.assertEqual(doc3.rowid, 3)
 
-        # Give doc3 the identifier '1' — which is doc1's rowid.
+        # Give doc3 the identifier '1', which is doc1's rowid.
         self.index.index(content='rowid-3', document=doc3, identifier='1')
 
         # Lookup '1' must return doc3 (identifier), not doc1 (rowid).
@@ -520,192 +565,6 @@ class TestDocLookupModelLevel(BaseTestCase):
         DocLookup.set_identifier(doc, '')
         self.assertIsNone(doc.identifier)
         self.assertEqual(DocLookup.select().count(), 0)
-
-    def test_identifier_lifecycle(self):
-        # Create without identifier: no DocLookup row.
-        doc = self.index.index(content='hello world')
-        self.assertIsNone(doc.identifier)
-        self.assertEqual(DocLookup.select().count(), 0)
-
-        # Lookup by rowid still works (int and str forms).
-        for lookup in (doc.rowid, str(doc.rowid)):
-            found = DocLookup.get_document(lookup)
-            self.assertEqual(found.rowid, doc.rowid)
-
-        # Lookup by non-existent identifier raises.
-        self.assertRaises(Document.DoesNotExist, DocLookup.get_document, 'x')
-
-        # set_identifier: assign an identifier.
-        DocLookup.set_identifier(doc, 'alpha')
-        self.assertEqual(doc.identifier, 'alpha')
-        self.assertEqual(DocLookup.select().count(), 1)
-        lookup = DocLookup.get()
-        self.assertEqual(lookup.identifier, 'alpha')
-        self.assertEqual(lookup.rowid, doc.rowid)
-
-        # Lookup by identifier.
-        found = DocLookup.get_document('alpha')
-        self.assertEqual(found.rowid, doc.rowid)
-        self.assertEqual(found.content, 'hello world')
-
-        # Lookup by rowid still works alongside identifier.
-        found = DocLookup.get_document(doc.rowid)
-        self.assertEqual(found.content, 'hello world')
-
-        # Rename identifier.
-        DocLookup.set_identifier(doc, 'beta')
-        self.assertEqual(doc.identifier, 'beta')
-        self.assertEqual(DocLookup.select().count(), 1)
-        self.assertEqual(DocLookup.get().identifier, 'beta')
-
-        # Old identifier is gone.
-        self.assertRaises(DocLookup.DoesNotExist, DocLookup.get,
-                          DocLookup.identifier == 'alpha')
-        self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'alpha')
-
-        # New identifier resolves.
-        self.assertEqual(DocLookup.get_document('beta').rowid, doc.rowid)
-
-        # Clear identifier.
-        DocLookup.set_identifier(doc, None)
-        self.assertIsNone(doc.identifier)
-        self.assertEqual(DocLookup.select().count(), 0)
-        self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'beta')
-
-        # Clear again.
-        DocLookup.set_identifier(doc, None)
-        self.assertIsNone(doc.identifier)
-
-        # Re-add identifier after clearing.
-        DocLookup.set_identifier(doc, 'gamma')
-        self.assertEqual(doc.identifier, 'gamma')
-        self.assertEqual(DocLookup.select().count(), 1)
-        self.assertEqual(DocLookup.get_document('gamma').rowid, doc.rowid)
-
-        # Empty string treated as clear.
-        DocLookup.set_identifier(doc, '')
-        self.assertIsNone(doc.identifier)
-        self.assertEqual(DocLookup.select().count(), 0)
-
-        # Reindex via Index.index() w/o identifier arg preserves.
-        doc2 = self.index.index('original', identifier='keep-me')
-        self.assertEqual(DocLookup.select().count(), 1)
-        self.assertEqual(DocLookup.get().identifier, 'keep-me')
-
-        self.index.index('updated content', document=doc2)
-        self.assertEqual(DocLookup.select().count(), 1)
-        self.assertEqual(DocLookup.get().identifier, 'keep-me')
-        refreshed = Document.all().where(Document.rowid == doc2.rowid).get()
-        self.assertEqual(refreshed.content, 'updated content')
-        self.assertEqual(refreshed.identifier, 'keep-me')
-
-        # Reindex via Index.index() w/new identifier.
-        self.index.index('updated again', document=doc2, identifier='renamed')
-        self.assertEqual(DocLookup.select().count(), 1)
-        self.assertEqual(DocLookup.get().identifier, 'renamed')
-        self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'keep-me')
-        self.assertEqual(DocLookup.get_document('renamed').rowid, doc2.rowid)
-
-        # Reindex via Index.index() with identifier=None clears.
-        self.index.index('cleared again', document=doc2, identifier=None)
-        self.assertEqual(DocLookup.select().count(), 0)
-        self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'renamed')
-
-    def test_identifier_multi_document_interactions(self):
-        # Multiple documents with distinct identifiers.
-        doc_a = self.index.index(content='aaa', identifier='id-a')
-        doc_b = self.index.index(content='bbb', identifier='id-b')
-        doc_bare = self.index.index(content='ccc')
-
-        self.assertEqual(DocLookup.select().count(), 2)
-        self.assertEqual(Document.select().count(), 3)
-        self.assertEqual(DocLookup.get_document('id-a').rowid, doc_a.rowid)
-        self.assertEqual(DocLookup.get_document('id-b').rowid, doc_b.rowid)
-        self.assertRaises(Document.DoesNotExist,
-                          DocLookup.get_document, 'id-c')
-
-        # Dedup via Index.index(): same identifier, no document arg.
-        doc_a2 = self.index.index('aaa updated', identifier='id-a')
-        self.assertEqual(Document.select().count(), 3)  # No new document.
-        self.assertEqual(doc_a2.rowid, doc_a.rowid)
-        refreshed = Document.get(Document.rowid == doc_a.rowid)
-        self.assertEqual(refreshed.content, 'aaa updated')
-
-        # Theft via set_identifier: doc_b steals doc_a's identifier.
-        DocLookup.set_identifier(doc_b, 'id-a')
-        doc_b.save()
-
-        # doc_b now owns 'id-a'.
-        self.assertEqual(DocLookup.get_document('id-a').rowid, doc_b.rowid)
-        self.assertEqual(doc_b.identifier, 'id-a')
-
-        # 'id-b' is now gone.
-        self.assertRaises(DocLookup.DoesNotExist, DocLookup.get,
-                          DocLookup.identifier == 'id-b')
-
-        # doc_a's identifier is cleared in both Document and DocLookup.
-        victim = Document.get(Document.rowid == doc_a.rowid)
-        self.assertIsNone(victim.identifier)
-        self.assertRaises(DocLookup.DoesNotExist, DocLookup.get,
-                          DocLookup.rowid == doc_a.rowid)
-
-        self.assertEqual(DocLookup.select().count(), 1)
-
-        # Reset.
-        DocLookup.set_identifier(doc_a, 'id-a')
-        doc_a.save()
-        DocLookup.set_identifier(doc_b, 'id-b')
-        doc_b.save()
-        self.assertEqual(DocLookup.select().count(), 2)
-
-        # Theft via Index.index(): doc_bare takes doc_a's identifier.
-        self.index.index('ccc v2', document=doc_bare, identifier='id-a')
-
-        found = DocLookup.get_document('id-a')
-        self.assertEqual(found.rowid, doc_bare.rowid)
-        self.assertEqual(found.content, 'ccc v2')
-
-        # doc_a's identifier is cleared in both places.
-        victim = Document.all().where(Document.rowid == doc_a.rowid).get()
-        self.assertIsNone(victim.identifier)
-        self.assertRaises(DocLookup.DoesNotExist, DocLookup.get,
-                          DocLookup.rowid == doc_a.rowid)
-
-        # Theft chain: A -> B -> C.
-        DocLookup.set_identifier(doc_a, 'chain')
-        doc_a.save()
-        DocLookup.set_identifier(doc_b, 'chain')
-        doc_b.save()
-
-        victim_a = Document.get(Document.rowid == doc_a.rowid)
-        self.assertIsNone(victim_a.identifier)
-
-        DocLookup.set_identifier(doc_bare, 'chain')
-        doc_bare.save()
-
-        victim_b = Document.get(Document.rowid == doc_b.rowid)
-        self.assertIsNone(victim_b.identifier)
-
-        # Only doc_bare owns 'chain'.
-        self.assertEqual(DocLookup.get_document('chain').rowid, doc_bare.rowid)
-        self.assertEqual(DocLookup.select().count(), 1)
-
-        # Swap identifiers between two documents.
-        DocLookup.set_identifier(doc_a, 'swap-a')
-        doc_a.save()
-        DocLookup.set_identifier(doc_b, 'swap-b')
-        doc_b.save()
-
-        self.index.index('aaa', document=doc_a, identifier=None)
-        self.index.index('bbb', document=doc_b, identifier='swap-a')
-        self.index.index('aaa', document=doc_a, identifier='swap-b')
-
-        self.assertEqual(DocLookup.get_document('swap-a').rowid, doc_b.rowid)
-        self.assertEqual(DocLookup.get_document('swap-b').rowid, doc_a.rowid)
 
 #
 # Layer 2: HTTP APIs
@@ -1056,6 +915,225 @@ class TestHTTPViews(HTTPTestCase):
             'content': None, 'index': 'idx'})
         self.assertIn('content', resp['error'])
         self.assertEqual(Document.select().count(), 0)
+
+    def test_identifier_lifecycle(self):
+        # Create without identifier: no DocLookup row.
+        Index.create(name='idx')
+        resp = self.post_json('/documents/', {
+            'content': 'huey!',
+            'index': 'idx',
+            'metadata': {'k1': 'v1'}})
+        pk = resp['id']
+        self.assertIsNone(resp['identifier'])
+        self.assertEqual(DocLookup.select().count(), 0)
+
+        resp = self.get_json('/documents/%s/' % pk)
+        self.assertEqual(resp['content'], 'huey!')
+        self.assertIsNone(resp['identifier'])
+
+        # Lookup via non-existent identifier or id returns 404.
+        resp = self.app.get('/documents/huey/')
+        self.assertEqual(resp.status_code, 404)
+        resp = self.app.get('/documents/%s/' % (pk + 1,))
+        self.assertEqual(resp.status_code, 404)
+
+        # Set the identifier via an update. Nothing else is modified.
+        resp = self.post_json('/documents/%s/' % pk, {'identifier': 'i1'})
+        self.assertEqual(resp['id'], pk)
+        self.assertEqual(resp['identifier'], 'i1')
+        self.assertEqual(resp['content'], 'huey!')
+        self.assertEqual(resp['metadata'], {'k1': 'v1'})
+
+        # Verify lookup was created properly.
+        self.assertEqual(DocLookup.select().count(), 1)
+        lookup = DocLookup.get()
+        self.assertEqual(lookup.identifier, 'i1')
+        self.assertEqual(lookup.rowid, pk)
+
+        # Lookup and update via identifier or PK works.
+        for val in ('i1', pk):
+            resp = self.get_json('/documents/%s/' % val)
+            self.assertEqual(resp['id'], pk)
+            self.assertEqual(resp['identifier'], 'i1')
+
+            resp = self.post_json('/documents/%s/' % val, {
+                'content': 'huey-%s' % val})
+            self.assertEqual(resp['id'], pk)
+            self.assertEqual(resp['identifier'], 'i1')
+            self.assertEqual(resp['content'], 'huey-%s' % val)
+
+        # Update the identifier. Nothing else is modified.
+        resp = self.post_json('/documents/i1/', {'identifier': 'i2'})
+        self.assertEqual(resp['id'], pk)
+        self.assertEqual(resp['identifier'], 'i2')
+        self.assertEqual(resp['metadata'], {'k1': 'v1'})
+
+        # Verify lookup was created properly.
+        self.assertEqual(DocLookup.select().count(), 1)
+        lookup = DocLookup.get()
+        self.assertEqual(lookup.identifier, 'i2')
+        self.assertEqual(lookup.rowid, pk)
+
+        # Old identifier is gone.
+        resp = self.app.get('/documents/i1/')
+        self.assertEqual(resp.status_code, 404)
+
+        # New identifier resolves.
+        resp = self.get_json('/documents/i2/')
+        self.assertEqual(resp['id'], pk)
+        self.assertEqual(resp['identifier'], 'i2')
+        self.assertEqual(resp['metadata'], {'k1': 'v1'})
+
+        # Clear identifier.
+        resp = self.post_json('/documents/i2/', {'identifier': None})
+        self.assertEqual(resp['id'], pk)
+        self.assertIsNone(resp['identifier'])
+        self.assertEqual(resp['metadata'], {'k1': 'v1'})
+
+        # Lookup and identifier are gone.
+        self.assertEqual(DocLookup.select().count(), 0)
+        resp = self.app.get('/documents/i2/')
+        self.assertEqual(resp.status_code, 404)
+
+        # Set the identifier. Nothing else is modified.
+        resp = self.post_json('/documents/%s/' % pk, {'identifier': 'i3'})
+        self.assertEqual(resp['id'], pk)
+        self.assertEqual(resp['identifier'], 'i3')
+        self.assertEqual(resp['metadata'], {'k1': 'v1'})
+
+        # Verify lookup was created properly.
+        self.assertEqual(DocLookup.select().count(), 1)
+        lookup = DocLookup.get()
+        self.assertEqual(lookup.identifier, 'i3')
+        self.assertEqual(lookup.rowid, pk)
+
+        # Update the doc w/o specifying ident. Nothing else is modified.
+        resp = self.post_json('/documents/i3/', {'content': 'huey!'})
+        self.assertEqual(resp['id'], pk)
+        self.assertEqual(resp['identifier'], 'i3')
+        self.assertEqual(resp['metadata'], {'k1': 'v1'})
+        self.assertEqual(resp['content'], 'huey!')
+
+        # Create a second index to verify update occurs.
+        Index.create(name='idx2')
+
+        # Create w/existing identifier does upsert.
+        resp = self.post_json('/documents/', {
+            'content': 'mickey!',
+            'identifier': 'i3',
+            'indexes': ['idx', 'idx2']})
+        self.assertEqual(resp['id'], pk)
+        self.assertEqual(resp['identifier'], 'i3')
+        self.assertEqual(resp['metadata'], {'k1': 'v1'})
+        self.assertEqual(resp['content'], 'mickey!')
+        self.assertEqual(sorted(resp['indexes']), ['idx', 'idx2'])
+
+        # Verify lookup is still correct.
+        self.assertEqual(DocLookup.select().count(), 1)
+        lookup = DocLookup.get()
+        self.assertEqual(lookup.identifier, 'i3')
+        self.assertEqual(lookup.rowid, pk)
+
+    def test_identifier_multi_document_interactions(self):
+        Index.create(name='idx')
+
+        # Multiple documents with distinct identifiers.
+        def create(**data):
+            resp = self.post_json('/documents/', data)
+            return resp['id']
+
+        pk_a = create(content='aaa', identifier='id-a', index='idx')
+        pk_b = create(content='bbb', identifier='id-b', index='idx')
+        pk_bare = create(content='ccc', index='idx')
+
+        self.assertEqual(DocLookup.select().count(), 2)
+        self.assertEqual(Document.select().count(), 3)
+        self.assertEqual(DocLookup.get_document('id-a').rowid, pk_a)
+        self.assertEqual(DocLookup.get_document('id-b').rowid, pk_b)
+
+        # Create w/same identifier does upsert.
+        pk_a2 = create(content='aaa-x', identifier='id-a', index='idx')
+        self.assertEqual(pk_a2, pk_a)
+        self.assertEqual(Document.select().count(), 3)  # No new document.
+
+        doc = Document.get(Document.rowid == pk_a)
+        self.assertEqual(doc.content, 'aaa-x')
+
+        # Update: doc b steal doc a's identifier.
+        resp = self.post_json('/documents/id-b/', {
+            'identifier': 'id-a',
+        })
+        self.assertEqual(resp['id'], pk_b)
+        self.assertEqual(resp['identifier'], 'id-a')
+        self.assertEqual(resp['content'], 'bbb')
+
+        # doc_b now owns 'id-a'.
+        self.assertEqual(DocLookup.select().count(), 1)
+        dl = DocLookup.get()
+        self.assertEqual(dl.identifier, 'id-a')
+        self.assertEqual(dl.rowid, pk_b)
+
+        # doc_a's identifier got cleared.
+        resp = self.get_json('/documents/%s/' % pk_a)
+        self.assertIsNone(resp['identifier'])
+
+        # Reset.
+        self.post_json('/documents/%s/' % pk_a, {'identifier': 'id-a'})
+        self.post_json('/documents/%s/' % pk_b, {'identifier': 'id-b'})
+
+        # Verify docs and identifiers look good.
+        self.assertEqual(DocLookup.select().count(), 2)
+        dl_a = DocLookup.get(DocLookup.rowid == pk_a)
+        self.assertEqual(dl_a.identifier, 'id-a')
+        dl_b = DocLookup.get(DocLookup.rowid == pk_b)
+        self.assertEqual(dl_b.identifier, 'id-b')
+
+        # Update, bare doc steals id-a.
+        resp = self.post_json('/documents/%s/' % pk_bare, {
+            'identifier': 'id-a',
+            'content': 'ccc-x'})
+        self.assertEqual(resp['id'], pk_bare)
+        self.assertEqual(resp['identifier'], 'id-a')
+        self.assertEqual(resp['content'], 'ccc-x')
+
+        # doc_a's identifier is cleared again.
+        resp = self.get_json('/documents/%s/' % pk_a)
+        self.assertIsNone(resp['identifier'])
+
+        # Verify DocLookup is correct.
+        self.assertEqual(DocLookup.select().count(), 2)
+        dl_b = DocLookup.get(DocLookup.rowid == pk_b)
+        self.assertEqual(dl_b.identifier, 'id-b')
+        dl_bare = DocLookup.get(DocLookup.rowid == pk_bare)
+        self.assertEqual(dl_bare.identifier, 'id-a')
+
+        # Theft chain: A -> B -> C.
+        self.post_json('/documents/%s/' % pk_a, {'identifier': 'chain'})
+        self.post_json('/documents/%s/' % pk_b, {'identifier': 'chain'})
+        doc_a = Document.get(Document.rowid == pk_a)
+        self.assertIsNone(doc_a.identifier)
+        self.post_json('/documents/%s/' % pk_bare, {'identifier': 'chain'})
+        doc_b = Document.get(Document.rowid == pk_b)
+        self.assertIsNone(doc_a.identifier)
+
+        # Only ccc owns 'chain', stale identifiers were removed.
+        self.assertEqual(DocLookup.select().count(), 1)
+        dl = DocLookup.get()
+        self.assertEqual(dl.rowid, pk_bare)
+        self.assertEqual(dl.identifier, 'chain')
+
+        # Swap identifiers between two documents.
+        self.post_json('/documents/%s/' % pk_a, {'identifier': 'id-a'})
+        self.post_json('/documents/%s/' % pk_b, {'identifier': 'id-b'})
+
+        self.post_json('/documents/%s/' % pk_a, {'identifier': None})
+        self.post_json('/documents/%s/' % pk_b, {'identifier': 'id-a'})
+        self.post_json('/documents/%s/' % pk_a, {'identifier': 'id-b'})
+
+        self.assertEqual(self.get_json('/documents/id-a/')['id'], pk_b)
+        self.assertEqual(self.get_json('/documents/id-b/')['id'], pk_a)
+        self.assertEqual(self.get_json('/documents/chain/')['id'], pk_bare)
+        self.assertEqual(DocLookup.select().count(), 3)
 
 
 class TestHTTPAttachments(HTTPTestCase):
