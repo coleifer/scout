@@ -8,7 +8,6 @@ from flask import jsonify
 from flask import make_response
 from flask import request
 from flask import url_for
-from flask.views import MethodView
 from peewee import *
 from playhouse.flask_utils import get_object_or_404
 from playhouse.flask_utils import PaginatedQuery

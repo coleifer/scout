@@ -10,7 +10,6 @@ from .constants import SEARCH_NONE
 from .exceptions import InvalidSearchException
 from .exceptions import error
 from .models import Document
-from .models import Index
 from .models import IndexDocument
 from .models import Metadata
 

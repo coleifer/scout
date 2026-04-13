@@ -1,6 +1,5 @@
 import json
 import re
-import sys
 
 from flask import request
 

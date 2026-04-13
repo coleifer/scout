@@ -194,7 +194,7 @@ class Scout(object):
         return self.post('/documents/%s/' % (document_id), data, attachments)
 
     def delete_document(self, document_id=None):
-        if not document_id:
+        if document_id is None:
             raise ValueError('`document_id` must be provided.')
 
         return self.delete('/documents/%s/' % document_id)
