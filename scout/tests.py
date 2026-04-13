@@ -1116,7 +1116,7 @@ class TestHTTPViews(HTTPTestCase):
         self.assertIsNone(doc_a.identifier)
         self.post_json('/documents/%s/' % pk_bare, {'identifier': 'chain'})
         doc_b = Document.get(Document.rowid == pk_b)
-        self.assertIsNone(doc_a.identifier)
+        self.assertIsNone(doc_b.identifier)
 
         # Only ccc owns 'chain', stale identifiers were removed.
         self.assertLookupCount(1)
@@ -2160,9 +2160,7 @@ class FlaskScout(Scout):
 
     def get_raw(self, url, **kwargs):
         if kwargs:
-            if '?' not in url:
-                url += '?'
-            url += urlencode(kwargs, True)
+            url += ('&' if '?' in url else '?') + urlencode(kwargs, True)
         resp = self.flask_client.get(url, headers=self._headers())
         return resp.data
 

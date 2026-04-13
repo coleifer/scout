@@ -530,7 +530,7 @@ class AttachmentView(_FileProcessingView):
         nfiles = len(request.files)
         if nfiles == 1:
             attachment.delete_instance()
-            self.attach_files(document)
+            attachment, = self.attach_files(document)
         elif nfiles > 1:
             error('Only one attachment permitted when performing update.')
         else:

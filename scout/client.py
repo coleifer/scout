@@ -1,8 +1,6 @@
-import base64
 import io
 import json
 import mimetypes
-import os
 
 from email.generator import _make_boundary as choose_boundary
 from urllib.parse import urlencode

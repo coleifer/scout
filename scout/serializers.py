@@ -19,7 +19,7 @@ class Serializer(object):
         return [self.serialize(obj, **options) for obj in query]
 
 
-class DocumentSerializer(object):
+class DocumentSerializer(Serializer):
     def serialize(self, document, prefetched=False, include_score=False):
         data = {
             'id': document.rowid,
