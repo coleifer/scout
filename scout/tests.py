@@ -3240,6 +3240,50 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
             data = self.scout.get_index(name, q='cross listed')
             self.assertEqual(self._contents(data), [txt])
 
+    def test_shared_deduped(self):
+        i1 = Index.create(name='i1')
+        i2 = Index.create(name='i2')
+        i3 = Index.create(name='i3')
+        a = Document.create(content='single doc')
+        b = Document.create(content='double doc')
+        c = Document.create(content='triple doc')
+        a.metadata = {'k': 'v'}
+        b.metadata = {'k': 'v'}
+        c.metadata = {'k': 'v'}
+        i1.add_to_index(a)
+        i1.add_to_index(b)
+        i1.add_to_index(c)
+        i2.add_to_index(b)
+        i2.add_to_index(c)
+        i3.add_to_index(c)
+
+        data, _ = self._search_docs('doc')
+        self.assertEqual(self._contents(data), ['single doc', 'double doc',
+                                                'triple doc'])
+
+        data, _ = self._search_docs('doc', index=['i1', 'i2', 'i3'])
+        self.assertEqual(self._contents(data), ['single doc', 'double doc',
+                                                'triple doc'])
+
+        data, _ = self._search_docs('doc', index=['i1', 'i3'])
+        self.assertEqual(self._contents(data), ['single doc', 'double doc',
+                                                'triple doc'])
+
+        data, _ = self._search_docs('doc', index=['i2', 'i3'])
+        self.assertEqual(self._contents(data), ['double doc', 'triple doc'])
+
+        data, _ = self._search_docs('doc', index=['i3', 'i2'])
+        self.assertEqual(self._contents(data), ['double doc', 'triple doc'])
+
+        data, _ = self._search_docs('doc', index=['i3', 'i2'], k='v')
+        self.assertEqual(self._contents(data), ['double doc', 'triple doc'])
+
+        data, _ = self._search_docs('doc', index=['i3', 'i2'], k='x')
+        self.assertEqual(self._contents(data), [])
+
+        data, _ = self._search_docs('doc', index=['i3', 'i2', 'i4'])
+        self.assertTrue('error' in data)
+
     def test_metadata_filtering(self):
         # Tag EQ.
         data, _ = self._search_idx('notes', 'python', tag='tutorial',
