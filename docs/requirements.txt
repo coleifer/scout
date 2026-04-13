@@ -1,2 +1,2 @@
 flask
-peewee>=2.7.3
+peewee>=3
