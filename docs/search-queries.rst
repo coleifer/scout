@@ -251,8 +251,8 @@ By default, search results are ranked using the `BM25 algorithm
 <http://en.wikipedia.org/wiki/Okapi_BM25>`_, which is built into SQLite FTS5.
 Documents that are a better match for your query appear first.
 
-Each document in the response includes a ``score`` field. Lower (more
-negative) scores indicate better matches:
+Each document in the response includes a ``score`` field. **Scores are
+negative**, and lower (more negative) values indicate better matches:
 
 .. code-block:: javascript
 
@@ -262,11 +262,15 @@ negative) scores indicate better matches:
       ...
     }
 
+This convention comes from SQLite FTS5's built-in ``rank`` column, which
+returns negative BM25 values so that a simple ascending sort puts the best
+matches first. A score of ``-2.98`` is a better match than ``-0.02``.
+
 You can control ranking with the ``ranking`` parameter:
 
 * ``ranking=bm25`` - (default) use BM25 ranking.
-* ``ranking=none`` - no ranking; results are returned in arbitrary order and
-  the ``score`` field is omitted.
+* ``ranking=none`` - no ranking; results are returned in rowid (insertion)
+  order and the ``score`` field is omitted.
 
 You can also control sort order with the ``ordering`` parameter:
 

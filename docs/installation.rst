@@ -27,8 +27,8 @@ Dependencies
 
 Scout has the following Python dependencies:
 
-* `Flask <http://flask.pocoo.org>`_
-* `Peewee <http://docs.peewee-orm.com>`_
+* `Flask <https://flask.palletsproject.com/>`_
+* `Peewee <https://docs.peewee-orm.com/>`_
 
 If you installed Scout using ``pip`` then the dependencies will have
 automatically been installed for you. Otherwise be sure to install ``flask``

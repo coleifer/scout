@@ -62,6 +62,11 @@ There are four main concepts in Scout:
    linked to the document as an attachment. A document may have any number of
    attachments, or none at all.
 
+   Attachment file data is stored in a compressed, content-addressable table.
+   If the same file content is attached to multiple documents, only one copy of
+   the data is stored on disk. When an attachment is removed, the underlying
+   data is automatically cleaned up once no other attachment references it.
+
 Documents also can have **metadata**, arbitrary key/value pairs. Besides
 full-text search, Scout allows complex filtering based on metadata values. So
 in addition to storing useful things alongside your documents, you can also use
@@ -287,7 +292,8 @@ Using the Python client:
 
     renamed = scout.rename_index('test-index', 'new-name')
 
-``DELETE`` requests will delete the index, but all documents will be preserved in the database.
+``DELETE`` requests will delete the index, but all documents will be preserved
+in the database.
 
 Example of deleting an index:
 
@@ -788,6 +794,38 @@ Using the Python client:
 
     scout.delete_document('post-42')
 
+Identifier uniqueness
+^^^^^^^^^^^^^^^^^^^^^
+
+Each identifier can belong to at most one document. If you update a document's
+identifier to a value that is currently owned by a different document, the other
+document's identifier is **silently cleared**:
+
+.. code-block:: python
+
+    # doc-a owns "shared-id", doc-b has no identifier.
+    scout.create_document('aaa', 'idx', identifier='shared-id')
+    doc_b = scout.create_document('bbb', 'idx', identifier='other-id')
+
+    # Reassign "shared-id" from doc-a to doc-b:
+    scout.update_document(doc_b['id'], identifier='shared-id')
+
+    # doc-b now owns "shared-id".
+    scout.get_document('shared-id')['content']  # 'bbb'
+
+    # doc-a's identifier has been cleared to None.
+    scout.get_document(doc_a['id'])['identifier']  # None
+
+The same rule applies during upsert: ``create_document`` with an existing
+identifier always resolves to the current owner. It will never "steal" the
+identifier to a new row, instead it updates the existing document in place.
+Theft can only happen through ``update_document``.
+
+.. warning::
+    Scout does not return an error or warning when an identifier is taken from
+    another document. If your application shares identifiers across independent
+    subsystems, use a prefix or some other convention to ensure uniqueness.
+
 .. _update_metadata:
 
 Update metadata: "/documents/:document-id/metadata/"
@@ -951,8 +989,11 @@ Response:
       "previous_url": null
     }
 
-``POST`` requests should contain the attachments as form-encoded files. The
-:ref:`Scout client <client>` will handle this automatically for you.
+``POST`` requests should contain the attachments as form-encoded file fields.
+When uploading files with ``curl`` or other HTTP clients, structured data
+(such as document content or metadata) must be sent alongside the files in a
+form field called ``data``, encoded as a JSON string. The :ref:`Scout client <client>`
+handles all encoding automatically.
 
 Example ``POST`` request uploading a new attachment:
 
@@ -1012,6 +1053,19 @@ Attachments can also be included when creating or updating a document:
             'data.csv': open('/path/to/data.csv', 'rb'),
         },
         author='alice')
+
+Each document can have at most one attachment with a given filename. If you
+upload a file whose name matches an existing attachment on the same
+document, the previous attachment is replaced. No error is raised. This
+applies both when attaching files directly and when including files in a
+document create or update request.
+
+Filenames are sanitized for security on upload. Path separators and dangerous
+characters are stripped (e.g. ``../../etc/passwd`` becomes ``etc_passwd``). If
+sanitization produces an empty string, the filename defaults to ``unnamed``.
+The sanitized filename is what appears in the API and must be used to retrieve
+or delete the attachment. If you need to preserve the original filename, store
+it in the document's metadata.
 
 .. _attachment_detail:
 
@@ -1301,7 +1355,6 @@ The following options can be overridden:
 * ``HOST`` (same as ``-H`` or ``--host``).
 * ``PAGINATE_BY`` (same as ``--paginate-by``).
 * ``PORT`` (same as ``-p`` or ``--port``).
-* ``STEM`` (same as ``-s`` or ``--stem``).
 * ``URL_PREFIX`` (same as ``-u`` or ``--url-prefix``), a URL path to prefix the Scout API with.
 * ``SQLITE_PRAGMAS``, a list of 2-tuples specifying SQLite pragmas to set on the database connection (e.g. ``[('journal_mode', 'wal'), ('cache_size', -65536)]``).
 * ``MAX_CONTENT_LENGTH``, maximum request body size in bytes (same as ``-m`` or ``--max-request-size``).
@@ -1319,7 +1372,6 @@ Example configuration file:
     DATABASE = 'my_search.db'
     HOST = '0.0.0.0'
     PORT = 1234
-    STEM = 'porter'
 
 Example of running Scout with the above config file. Note that since we
 specified the database in the config file, we do not need to pass one in on the

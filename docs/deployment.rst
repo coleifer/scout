@@ -109,3 +109,57 @@ Here is how you might run using the above wrapper script:
     $ uwsgi --http :8000 --wsgi-file wrapper.py --master --processes 4 --threads 2
 
 It is common to run uWSGI behind Nginx. For more information `check out the uWSGI docs <https://uwsgi-docs.readthedocs.io/en/latest/WSGIquickstart.html>`_.
+
+Docker
+------
+
+Scout includes a ``Dockerfile`` for containerized deployments. The default
+image uses the built-in gevent server on port 9004 with a volume-mounted
+database.
+
+Building the image:
+
+.. code-block:: console
+
+    $ docker build -t scout .
+
+Running the container:
+
+.. code-block:: console
+
+    $ docker run -d \
+        -p 8000:9004 \
+        -v /path/to/data:/data \
+        --name scout \
+        scout
+
+The database file is stored at ``/data/search-index.db`` inside the container
+(controlled by the ``SCOUT_DATABASE`` environment variable). Logs are written
+to ``/data/scout.log``.
+
+You can override any Scout option by appending flags to the ``docker run``
+command:
+
+.. code-block:: console
+
+    $ docker run -d \
+        -p 8000:9004 \
+        -v /path/to/data:/data \
+        -e SCOUT_DATABASE=/data/my-index.db \
+        scout \
+        --api-key secret --paginate-by 100
+
+The image includes a health check that polls the index list endpoint every 30
+seconds.
+
+To use a custom configuration file, mount it into the container and set the
+``SCOUT_CONFIG`` environment variable:
+
+.. code-block:: console
+
+    $ docker run -d \
+        -p 8000:9004 \
+        -v /path/to/data:/data \
+        -v /path/to/config.py:/etc/scout/config.py \
+        -e SCOUT_CONFIG=/etc/scout/config.py \
+        scout
