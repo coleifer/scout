@@ -25,18 +25,15 @@ class DocumentSearch(object):
 
         query = Document.select()
         if search:
-            try:
-                query = query.where(Document.match(phrase))
-            except Exception:
-                raise InvalidSearchException(
-                    'Invalid search query "%s". Please check your query '
-                    'syntax.' % phrase)
+            query = query.where(Document.match(phrase))
 
         # Allow filtering by index(es).
         if index:
             query = query.join(IndexDocument)
             if isinstance(index, (list, tuple, Select)):
-                query = query.where(IndexDocument.index.in_(index))
+                query = (query
+                         .where(IndexDocument.index.in_(index))
+                         .distinct())
             else:
                 query = query.where(IndexDocument.index == index)
 

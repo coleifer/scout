@@ -59,11 +59,12 @@ class Document(FTS5Model):
                  for key, value in metadata.items() if value is not None])
              .execute())
 
-            nulls = [k for k in metadata if metadata[k] is None]
-            if nulls:
-                Metadata.delete().where(
-                    (Metadata.document == self.rowid) &
-                    (Metadata.key.in_(nulls))).execute()
+            if not clear:
+                nulls = [k for k in metadata if metadata[k] is None]
+                if nulls:
+                    Metadata.delete().where(
+                        (Metadata.document == self.rowid) &
+                        (Metadata.key.in_(nulls))).execute()
 
     def delete_metadata(self):
         Metadata.delete().where(Metadata.document == self.rowid).execute()

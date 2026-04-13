@@ -61,13 +61,12 @@ class RequestValidator(object):
         return data
 
     def normalize_get_indexes(self, data):
-        has_index_key = 'index' in data or 'indexes' in data
-        if not has_index_key:
-            return ()
-        elif data.get('index'):
+        if data.get('index'):
             index_names = data.getlist('index')
         elif data.get('indexes'):
             index_names = data.getlist('indexes')
+        else:
+            return ()
         return self._validate_index_names(index_names)
 
     def validate_indexes(self, data, required=True):

@@ -752,6 +752,34 @@ class TestHTTPViews(HTTPTestCase):
             'The following indexes were not found: missing, blah.')
         self.assertEqual(Document.select().count(), 0)
 
+    def test_normalize_get_indexes_empty_value(self):
+        Index.create(name='idx')
+        idx = Index.create(name='idx2')
+        idx.index('doc')
+
+        # Empty index= param → should return documents unfiltered, not 500.
+        response = self.get_json('/documents/?index=')
+        self.assertEqual(len(response['documents']), 1)
+
+    def test_shared_doc_not_duplicated_in_multi_index_filter(self):
+        idx_a = Index.create(name='idx-a')
+        idx_b = Index.create(name='idx-b')
+
+        # doc lives in both indexes.
+        doc = idx_a.index('shared content')
+        idx_b.add_to_index(doc)
+
+        # Only in idx-a.
+        idx_a.index('only-a')
+
+        data = self.get_json('/documents/?index=idx-a&index=idx-b')
+        contents = [d['content'] for d in data['documents']]
+
+        # "shared content" must appear exactly once.
+        self.assertEqual(sorted(contents), ['only-a', 'shared content'])
+        self.assertEqual(data['document_count'], 2)
+        self.assertEqual(data['filtered_count'], 2)
+
     def test_parse_post_rejects_unknown_keys(self):
         idx = Index.create(name='idx')
         for bad_val in (None, ''):
@@ -1633,6 +1661,19 @@ class TestHTTPAttachments(HTTPTestCase):
                 response = self.app.get(att_url)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.data, data[att['filename']])
+
+    def test_attachment_list_no_dupes_multi_index(self):
+        idx_a = Index.create(name='idx-a')
+        idx_b = Index.create(name='idx-b')
+
+        doc = idx_a.index('shared')
+        idx_b.add_to_index(doc)
+        doc.attach('f.txt', b'data')
+
+        data = self.get_json('/attachments/?index=idx-a&index=idx-b')
+
+        # The single attachment must appear exactly once.
+        self.assertEqual(len(data['attachments']), 1)
 
     def test_global_attachments(self):
         idx = Index.create(name='idx')

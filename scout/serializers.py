@@ -71,7 +71,7 @@ class DocumentSerializer(Serializer):
 
 
 class AttachmentSerializer(Serializer):
-    def serialize(self, attachment, include_score=False):
+    def serialize(self, attachment):
         data = {
             'filename': attachment.filename,
             'mimetype': attachment.mimetype,
@@ -82,8 +82,6 @@ class AttachmentSerializer(Serializer):
             'data': url_for('attachment_download',
                             document_id=attachment.document_id,
                             pk=attachment.filename)}
-        if include_score:
-            data['score'] = attachment.score
         return data
 
 

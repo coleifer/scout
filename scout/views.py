@@ -569,7 +569,8 @@ def attachment_list():
         query = (query
                  .join_from(Attachment, Document)
                  .join_from(Document, IndexDocument)
-                 .where(IndexDocument.index.in_(indexes)))
+                 .where(IndexDocument.index.in_(indexes))
+                 .distinct())
 
     filename = request.args.get('filename')
     if filename:
