@@ -14,60 +14,73 @@ syntax, giving you powerful tools for building precise queries.
     from search matching and scoring. You never need to specify a column name
     in your queries.
 
+The examples below assume you have a client initialized:
+
+.. code-block:: python
+
+    from scout.client import Scout
+    scout = Scout('http://localhost:8000')
+
+Most examples use :py:meth:`~Scout.search`, which searches across all indexes
+(or a specified subset). To restrict a search to a single index, use
+:py:meth:`~Scout.get_index` instead — the query syntax is identical.
+
 Simple Queries
 --------------
 
 The simplest query is a single word. It matches any document whose content
 contains that word (after stemming - see below).
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=python"
+    results = scout.search('python')
+
+Multiple words are joined with **implicit AND**, all terms must be present in
+the document:
+
+.. code-block:: python
+
+    results = scout.search('python web framework')
+
+This returns only documents that contain *all three* of the words ``python``,
+``web``, and ``framework``.
+
+To restrict a search to specific indexes, pass ``index`` as a string or list:
+
+.. code-block:: python
+
+    # Single index
+    results = scout.search('python', index='my-index')
+
+    # Multiple indexes
+    results = scout.search('python', index=['idx1', 'idx2'])
+
+You can also use :py:meth:`~Scout.get_index` to search within a single index:
 
 .. code-block:: python
 
     results = scout.get_index('my-index', q='python')
 
-Multiple words are joined with **implicit AND**, all terms must be present in
-the document:
-
-.. code-block:: console
-
-    $ curl "localhost:8000/my-index/?q=python+web+framework"
-
-.. code-block:: python
-
-    results = scout.get_index('my-index', q='python web framework')
-
-This returns only documents that contain *all three* of the words ``python``,
-``web``, and ``framework``.
-
-To query across multiple indexes (or all indexes) you can use the documents
-endpoint:
-
-.. code-block:: console
-
-    $ curl "localhost:8000/documents/?q=python&index=idx1&index=idx2"
-
-.. code-block:: python
-
-    results = scout.search('python', index=['idx1', 'idx2'])
-
-
 All Documents
 ^^^^^^^^^^^^^
 
-You can omit a query and filter directly on metadata across all documents:
+You can use the wildcard ``'*'`` search query and filter directly on metadata
+across all documents:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?category=tutorial"
+    results = scout.search('*', category='tutorial')
 
-Alternately, you can use the wildcard ``'*'`` to accomplish the same:
+Alternately, you can omit the query and search across a single index or all
+indexes:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?category=tutorial&q=*"
+    # Just in "my-index".
+    results = scout.get_index('my-index', category='tutorial')
+
+    # All documents.
+    results = scout.get_documents(category='tutorial')
 
 Boolean Operators
 -----------------
@@ -77,68 +90,64 @@ must be **UPPERCASE**.
 
 **OR**: match documents containing *either* term:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=flask+OR+django"
+    results = scout.search('flask OR django')
 
 **NOT**: exclude documents containing a term:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=python+NOT+javascript"
+    results = scout.search('python NOT javascript')
 
 **AND**: explicitly require both terms (this is the default, so ``python AND
 web`` is equivalent to ``python web``):
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=python+AND+web"
+    results = scout.search('python AND web')
 
 Use **parentheses** to group sub-expressions:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=(flask+OR+django)+AND+python"
+    results = scout.search('(flask OR django) AND python')
 
 This matches documents that contain ``python`` and at least one of ``flask``
 or ``django``.
 
 A more complex example:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=(flask+OR+django)+NOT+javascript"
+    results = scout.search('(flask OR django) NOT javascript')
 
 Phrase Queries
 --------------
 
 Wrap terms in **double quotes** to require an exact sequence of tokens:
 
-.. code-block:: console
-
-    $ curl 'localhost:8000/my-index/?q="web+framework"'
-
 .. code-block:: python
 
-    results = scout.get_index('my-index', q='"web framework"')
+    results = scout.search('"web framework"')
 
 The query ``"web framework"`` matches ``a web framework for python`` but not
 ``the framework is web-based`` (because the tokens are not adjacent).
 
 Phrases can be combined with boolean operators:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl 'localhost:8000/my-index/?q="web+framework"+OR+"REST+API"'
+    results = scout.search('"web framework" OR "REST API"')
 
 Prefix Queries
 --------------
 
 Append ``*`` to a token to match any word that starts with that prefix:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=frame*"
+    results = scout.search('frame*')
 
 This matches ``framework``, ``frameworks``, ``framed``, etc.
 
@@ -150,9 +159,9 @@ This matches ``framework``, ``frameworks``, ``framed``, etc.
 
 Prefix queries combine naturally with other features:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=pyth*+NOT+javascript"
+    results = scout.search('pyth* NOT javascript')
 
 NEAR Queries
 ------------
@@ -160,21 +169,16 @@ NEAR Queries
 The ``NEAR`` operator matches documents where two or more terms appear within a
 specified distance (in tokens) of each other:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=NEAR(python+web,+3)"
+    results = scout.search('NEAR(python web, 3)')
+
+This matches documents where ``python`` and ``web`` are within 3 tokens of each
+other. The default distance (when omitted) is 10:
 
 .. code-block:: python
 
-    results = scout.get_index('my-index', q='NEAR(python web, 3)')
-
-This matches documents where ``python`` and ``web`` are within 3 tokens of each
-other. The default distance (when omitted) is 10.
-
-.. code-block:: console
-
-    # Default distance of 10
-    $ curl "localhost:8000/my-index/?q=NEAR(python+web)"
+    results = scout.search('NEAR(python web)')
 
 Initial Token Queries
 ---------------------
@@ -182,9 +186,9 @@ Initial Token Queries
 The ``^`` operator matches only if the token appears at the very **beginning**
 of the content field:
 
-.. code-block:: console
+.. code-block:: python
 
-    $ curl "localhost:8000/my-index/?q=^python"
+    results = scout.search('^python')
 
 This matches ``python web framework`` but not ``learning python basics``.
 
@@ -213,34 +217,38 @@ Combining Features
 
 All of the above features can be combined freely:
 
-.. code-block:: console
+.. code-block:: python
 
     # Phrase + boolean + prefix
-    $ curl 'localhost:8000/my-index/?q="web+framework"+OR+pyth*'
+    results = scout.search('"web framework" OR pyth*')
 
     # NEAR + NOT
-    $ curl "localhost:8000/my-index/?q=NEAR(python+web,+5)+NOT+django"
+    results = scout.search('NEAR(python web, 5) NOT django')
 
     # Initial token + boolean grouping
-    $ curl "localhost:8000/my-index/?q=^python+AND+(flask+OR+django)"
+    results = scout.search('^python AND (flask OR django)')
 
     # Complex grouped expression
-    $ curl 'localhost:8000/my-index/?q=(flask+OR+django)+AND+"REST+API"+NOT+legacy'
+    results = scout.search('(flask OR django) AND "REST API" NOT legacy')
 
 Combined with metadata filters:
 
-.. code-block:: console
-
-    # Full-text search + metadata filters
-    $ curl "localhost:8000/my-index/?q=python+OR+javascript&category=tutorial&level=beginner"
-
 .. code-block:: python
 
+    # Using search() across all indexes
+    results = scout.search(
+        'python OR javascript',
+        category='tutorial',
+        level='beginner')
+
+    # Using get_index() to also restrict to a single index
     results = scout.get_index(
         'my-index',
         q='python OR javascript',
         category='tutorial',
         level='beginner')
+
+For the full set of metadata filter operations, see :ref:`metadata_filters`.
 
 Error Handling
 --------------
@@ -248,9 +256,8 @@ Error Handling
 If you send a malformed query (unbalanced quotes, dangling operators, etc),
 Scout will return a **400 Bad Request** with a JSON error message:
 
-.. code-block:: console
+.. code-block:: javascript
 
-    $ curl 'localhost:8000/my-index/?q="unbalanced'
     {"error": "Invalid search query: unterminated string"}
 
 Common mistakes:
@@ -284,22 +291,26 @@ matches first. A score of ``-2.98`` is a better match than ``-0.02``.
 
 You can control ranking with the ``ranking`` parameter:
 
-* ``ranking=bm25`` - (default) use BM25 ranking.
-* ``ranking=none`` - no ranking; results are returned in rowid (insertion)
-  order and the ``score`` field is omitted.
+.. code-block:: python
+
+    # Default BM25 ranking (best match first)
+    results = scout.search('python', ranking='bm25')
+
+    # No ranking — results returned in insertion order, score omitted
+    results = scout.search('python', ranking='none')
 
 You can also control sort order with the ``ordering`` parameter:
 
-.. code-block:: console
+.. code-block:: python
 
     # Sort by score (best match first — this is the default with BM25)
-    $ curl "localhost:8000/my-index/?q=python&ordering=score"
+    results = scout.search('python', ordering='score')
 
     # Sort by ID descending (newest first)
-    $ curl "localhost:8000/my-index/?q=python&ordering=-id"
+    results = scout.search('python', ordering='-id')
 
     # Sort by content alphabetically
-    $ curl "localhost:8000/my-index/?q=python&ordering=content"
+    results = scout.search('python', ordering='content')
 
 Valid ordering choices: ``id``, ``identifier``, ``content``, ``score``
 (only when a search query is present). Prefix with ``-`` for descending.
@@ -316,31 +327,31 @@ Quick Reference
      - Example
    * - Single term
      - ``word``
-     - ``q=python``
+     - ``q='python'``
    * - Implicit AND
      - ``word1 word2``
-     - ``q=python web``
+     - ``q='python web'``
    * - OR
      - ``word1 OR word2``
-     - ``q=flask OR django``
+     - ``q='flask OR django'``
    * - NOT
      - ``word1 NOT word2``
-     - ``q=python NOT java``
+     - ``q='python NOT java'``
    * - Phrase
      - ``"word1 word2"``
-     - ``q="web framework"``
+     - ``q='"web framework"'``
    * - Prefix
      - ``prefix*``
-     - ``q=frame*``
+     - ``q='frame*'``
    * - NEAR
      - ``NEAR(w1 w2, N)``
-     - ``q=NEAR(python web, 5)``
+     - ``q='NEAR(python web, 5)'``
    * - Initial token
      - ``^word``
-     - ``q=^python``
+     - ``q='^python'``
    * - Grouping
      - ``(expr)``
-     - ``q=(flask OR django) AND python``
+     - ``q='(flask OR django) AND python'``
    * - All documents
      - ``*``
-     - ``q=*``
+     - ``q='*'``
