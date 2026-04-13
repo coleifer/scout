@@ -15,20 +15,26 @@ logger = logging.getLogger('scout')
 
 
 def main():
+    import signal
+    import gevent
     from gevent.pool import Pool
     from gevent.pywsgi import WSGIServer
 
     MAX_CONNECTIONS = int(os.environ.get('SCOUT_MAX_CONNECTIONS') or 128)
     pool = Pool(MAX_CONNECTIONS)
-    try:
-        server = WSGIServer(
-            (app.config['HOST'], app.config['PORT']),
-            app,
-            spawn=pool)
-        server.serve_forever()
-    except KeyboardInterrupt:
+    server = WSGIServer(
+        (app.config['HOST'], app.config['PORT']),
+        app,
+        spawn=pool)
+
+    def shutdown():
         logger.info('Shutting down!')
-        sys.exit(0)
+        server.stop()
+
+    gevent.signal_handler(signal.SIGTERM, shutdown)
+    gevent.signal_handler(signal.SIGINT, shutdown)
+
+    server.serve_forever()
 
 
 if __name__ == '__main__':
