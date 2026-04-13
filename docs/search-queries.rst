@@ -35,8 +35,24 @@ the document:
 
     $ curl "localhost:8000/my-index/?q=python+web+framework"
 
+.. code-block:: python
+
+    results = scout.get_index('my-index', q='python web framework')
+
 This returns only documents that contain *all three* of the words ``python``,
 ``web``, and ``framework``.
+
+To query across multiple indexes (or all indexes) you can use the documents
+endpoint:
+
+.. code-block:: console
+
+    $ curl "localhost:8000/documents/?q=python&index=idx1&index=idx2"
+
+.. code-block:: python
+
+    results = scout.search('python', index=['idx1', 'idx2'])
+
 
 All Documents
 ^^^^^^^^^^^^^

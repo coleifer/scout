@@ -33,7 +33,7 @@ class DocumentSearch(object):
                     'syntax.' % phrase)
 
         # Allow filtering by index(es).
-        if index is not None:
+        if index:
             query = query.join(IndexDocument)
             if isinstance(index, (list, tuple, Select)):
                 query = query.where(IndexDocument.index.in_(index))
