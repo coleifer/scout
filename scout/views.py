@@ -222,7 +222,7 @@ class IndexView(ScoutView):
         query = (Index
                  .select(
                      Index,
-                     fn.COUNT(IndexDocument.id).alias('document_count'))
+                     fn.COUNT(IndexDocument.document).alias('document_count'))
                  .join(IndexDocument, JOIN.LEFT_OUTER)
                  .group_by(Index))
 
