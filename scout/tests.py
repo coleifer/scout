@@ -2216,6 +2216,39 @@ class TestScoutClient(BaseTestCase):
         self.assertEqual(
             [idx['name'] for idx in self.scout.get_indexes()], ['idx-b'])
 
+    def test_index_delete_orphaned_docs(self):
+        idx1 = self.scout.create_index('idx1')
+        idx2 = self.scout.create_index('idx2')
+        self.scout.create_document('doc 1', ['idx1'], identifier='d1')
+        self.scout.create_document('doc 2', ['idx2'], identifier='d2')
+        self.scout.create_document('doc 3', ['idx1', 'idx2'], identifier='d3')
+
+        self.scout.delete_index('idx1')
+        resp = [d['content'] for d in self.scout.get_documents()['documents']]
+        self.assertEqual(sorted(resp), ['doc 1', 'doc 2', 'doc 3'])
+
+        resp = self.scout.get_document('d1')
+        self.assertEqual(resp['indexes'], [])
+
+        resp = self.scout.get_document('d2')
+        self.assertEqual(resp['indexes'], ['idx2'])
+
+        resp = self.scout.get_document('d3')
+        self.assertEqual(resp['indexes'], ['idx2'])
+
+        resp = [d['content'] for d in self.scout.search('doc')['documents']]
+        self.assertEqual(sorted(resp), ['doc 1', 'doc 2', 'doc 3'])
+
+        self.scout.delete_index('idx2')
+
+        resp = [d['content'] for d in self.scout.search('doc')['documents']]
+        self.assertEqual(sorted(resp), ['doc 1', 'doc 2', 'doc 3'])
+
+        resp = self.scout.create_index('idx1')
+        for d in ('d1', 'd2', 'd3'):
+            resp = self.scout.get_document(d)
+            self.assertEqual(resp['indexes'], [])
+
     def test_document_crud(self):
         idx = self.scout.create_index('idx')
         self.scout.create_index('alt')
