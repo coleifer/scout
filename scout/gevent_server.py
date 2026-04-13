@@ -1,5 +1,6 @@
 from gevent import monkey; monkey.patch_all()
 
+import logging
 import os
 import sys
 from scout.server import parse_options
@@ -10,6 +11,8 @@ from scout.server import parse_options
 # can reference the app object directly (e.g. gunicorn gevent_server:app).
 app = parse_options()
 
+logger = logging.getLogger('scout')
+
 
 def main():
     from gevent.pool import Pool
@@ -18,10 +21,13 @@ def main():
     MAX_CONNECTIONS = int(os.environ.get('SCOUT_MAX_CONNECTIONS') or 128)
     pool = Pool(MAX_CONNECTIONS)
     try:
-        (WSGIServer((app.config['HOST'], app.config['PORT']), app, spawn=pool)
-         .serve_forever())
+        server = WSGIServer(
+            (app.config['HOST'], app.config['PORT']),
+            app,
+            spawn=pool)
+        server.serve_forever()
     except KeyboardInterrupt:
-        app.logger.info('Shutting down!')
+        logger.info('Shutting down!')
         sys.exit(0)
 
 

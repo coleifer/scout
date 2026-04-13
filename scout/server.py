@@ -150,6 +150,23 @@ def panic(s, exit_code=1):
     sys.exit(exit_code)
 
 
+def configure_logger(logfile=None):
+    log_fmt = logging.Formatter(
+        '%(asctime)s %(levelname)s %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+
+    logger.setLevel(logging.INFO)
+
+    if logfile:
+        file_handler = logging.FileHandler(logfile)
+        file_handler.setFormatter(log_fmt)
+        logger.addHandler(file_handler)
+    else:
+        console = logging.StreamHandler()
+        console.setFormatter(log_fmt)
+        logger.addHandler(console)
+
+
 def get_option_parser():
     parser = optparse.OptionParser()
     parser.add_option(
@@ -234,9 +251,7 @@ def parse_options():
     option_parser = get_option_parser()
     options, args = option_parser.parse_args()
 
-    if options.logfile:
-        handler = logging.FileHandler(options.logfile)
-        logger.addHandler(handler)
+    configure_logger(options.logfile)
 
     config_file = os.environ.get('SCOUT_CONFIG') or options.config
     config = {'DATABASE': os.environ.get('SCOUT_DATABASE')}
