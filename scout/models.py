@@ -83,7 +83,7 @@ class Document(FTS5Model):
         if isinstance(data, str):
             data = data.encode('utf-8')
         hash_obj = hashlib.sha256(data)
-        data_hash = base64.b64encode(hash_obj.digest())
+        data_hash = base64.b64encode(hash_obj.digest()).decode('ascii')
         with database.atomic():
             # If updating a pre-existing attachment w/this filename, first
             # delete - this ensures blobdata is cleaned up as well if needed.
