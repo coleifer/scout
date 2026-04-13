@@ -200,7 +200,7 @@ class ScoutView(object):
             'filters': filters,
             'ordering': ordering,
         })
-        if q:
+        if include_score:
             response.update(
                 ranking=ranking,
                 search_term=q)

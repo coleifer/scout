@@ -591,8 +591,18 @@ class TestHTTPViews(HTTPTestCase):
 
     def test_create_index(self):
         data = self.post_json('/', {'name': 'TestIndex'})
-        self.assertEqual(data['name'], 'TestIndex')
-        self.assertEqual(data['documents'], [])
+        self.assertEqual(data, {
+            'document_count': 0,
+            'documents': [],
+            'filtered_count': 0,
+            'filters': {},
+            'id': data['id'],
+            'name': 'TestIndex',
+            'next_url': None,
+            'ordering': [],
+            'page': 1,
+            'pages': 0,
+            'previous_url': None})
         self.assertEqual(Index.select().count(), 1)
 
     def test_create_missing_name(self):
@@ -680,15 +690,39 @@ class TestHTTPViews(HTTPTestCase):
         alt_idx = Index.create(name='alt-idx')
         doc = idx.index(content='foo')
         alt_idx.index(doc.content, doc)
-        idx.index('idx only')
-        alt_idx.index('alt only')
+        doc2 = idx.index('idx only')
+        doc3 = alt_idx.index('alt only')
 
         response = self.post_json('/idx/', {'name': 'idx-updated'})
-        self.assertEqual(response['id'], idx.id)
-        self.assertEqual(response['name'], 'idx-updated')
-        self.assertEqual(
-            [doc['content'] for doc in response['documents']],
-            ['foo', 'idx only'])
+        self.assertEqual(response, {
+            'document_count': 2,
+            'documents': [
+                {
+                    'attachments': [],
+                    'content': 'foo',
+                    'id': doc.rowid,
+                    'identifier': None,
+                    'indexes': ['idx-updated', 'alt-idx'],
+                    'metadata': {},
+                },
+                {
+                    'attachments': [],
+                    'content': 'idx only',
+                    'id': doc2.rowid,
+                    'identifier': None,
+                    'indexes': ['idx-updated'],
+                    'metadata': {},
+                }
+            ],
+            'filtered_count': 2,
+            'filters': {},
+            'id': 1,
+            'name': 'idx-updated',
+            'next_url': None,
+            'ordering': [],
+            'page': 1,
+            'pages': 1,
+            'previous_url': None})
 
         response = self.app.delete('/idx-updated/')
         data = json_load(response.data)
@@ -3391,10 +3425,10 @@ class TestFTS5HTTPIntegration(FTS5TestCase):
 
     def test_ranking_options(self):
         data, _ = self._http_search('testing', ranking='none')
-        self.assertEqual(data['ranking'], 'none')
+        self.assertNotIn('ranking', data)
 
         data = self.scout.search('testing', ranking='none')
-        self.assertEqual(data['ranking'], 'none')
+        self.assertNotIn('ranking', data)
 
         data, _ = self._http_search('testing', ranking='bm25')
         self.assertEqual(data['ranking'], 'bm25')
