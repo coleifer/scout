@@ -310,9 +310,8 @@ class DocumentView(_FileProcessingView):
 
     def list_view(self):
         # Allow filtering by index.
-        idx_list = request.args.getlist('index')
-        if idx_list:
-            indexes = Index.select(Index.id).where(Index.name.in_(idx_list))
+        indexes = validator.normalize_get_indexes(request.args)
+        if indexes:
             document_count = (Document
                               .select()
                               .join(IndexDocument)
@@ -565,13 +564,12 @@ def attachment_list():
              .join(BlobData,
                    on=(Attachment.hash == BlobData.hash).alias('_blob')))
 
-    idx_list = request.args.getlist('index')
-    if idx_list:
+    indexes = validator.normalize_get_indexes(request.args)
+    if indexes:
         query = (query
                  .join_from(Attachment, Document)
                  .join_from(Document, IndexDocument)
-                 .join_from(IndexDocument, Index)
-                 .where(Index.name.in_(idx_list)))
+                 .where(IndexDocument.index.in_(indexes)))
 
     filename = request.args.get('filename')
     if filename:

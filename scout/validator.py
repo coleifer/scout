@@ -60,6 +60,16 @@ class RequestValidator(object):
 
         return data
 
+    def normalize_get_indexes(self, data):
+        has_index_key = 'index' in data or 'indexes' in data
+        if not has_index_key:
+            return ()
+        elif data.get('index'):
+            index_names = data.getlist('index')
+        elif data.get('indexes'):
+            index_names = data.getlist('indexes')
+        return self._validate_index_names(index_names)
+
     def validate_indexes(self, data, required=True):
         has_index_key = 'index' in data or 'indexes' in data
         if data.get('index'):
@@ -73,7 +83,10 @@ class RequestValidator(object):
         else:
             return None  # Key not present at all.
 
-        indexes = list(Index.select().where(Index.name << index_names))
+        return self._validate_index_names(index_names)
+
+    def _validate_index_names(self, index_names):
+        indexes = list(Index.select().where(Index.name.in_(index_names)))
 
         # Validate that all the index names exist.
         observed_names = set(index.name for index in indexes)

@@ -1677,7 +1677,7 @@ class TestHTTPAttachments(HTTPTestCase):
         self.assertEqual(len(data['attachments']), 5)
 
         data = self.get_json('/attachments/?index=nope')
-        self.assertEqual(len(data['attachments']), 0)
+        self.assertTrue('error' in data)
 
         # Ordering.
         data = self.get_json('/attachments/?index=idx&ordering=-filename')
