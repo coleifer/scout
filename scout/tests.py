@@ -2034,7 +2034,7 @@ class TestHTTPSearch(HTTPTestCase):
         app.config['AUTHENTICATION'] = 'test'
         resp = self.app.get('/')
         self.assertEqual(resp.status_code, 401)
-        self.assertEqual(resp.data.decode('utf-8'), 'Invalid API key')
+        self.assertEqual(json_load(resp.data), {'error': 'Invalid API key'})
 
         resp = self.app.get('/?key=tesss')
         self.assertEqual(resp.status_code, 401)

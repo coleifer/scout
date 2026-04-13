@@ -88,7 +88,7 @@ def authentication(app):
             key = request.headers.get('key') or request.args.get('key')
             if key != api_key:
                 logger.info('Authentication failure for key: %s', key)
-                return 'Invalid API key', 401
+                return jsonify({'error': 'Invalid API key'}), 401
             else:
                 return fn(*args, **kwargs)
         return inner
