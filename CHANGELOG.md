@@ -4,6 +4,10 @@ This document describes changes to Scout from one release to another.
 
 ## master
 
+[View commits](https://github.com/coleifer/scout/compare/4.0.0...master)
+
+## 4.0.0
+
 * **Backwards-incompatible**: switch to FTS5. A migration script is
   provided as well as a command-line option to perform the migration. Note that
   FTS5 is much stricter about search queries, but also more performant and more
@@ -30,7 +34,7 @@ This creates a **new** database rather than modifying in-place.
 $ python migrate_fts5.py /path/to/scout.db /path/to/new.db
 ```
 
-[View commits](https://github.com/coleifer/scout/compare/3.1.0...master)
+[View commits](https://github.com/coleifer/scout/compare/3.1.0...4.0.0)
 
 ## 3.1.0
 
