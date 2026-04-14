@@ -33,10 +33,9 @@ Features
 * store search content and arbitrary metadata.
 * attach files or BLOBs to indexed documents.
 * BM25 result ranking, porter stemmer.
-* besides full-text search, perform complex filtering based on metadata values.
-* global attachment search and filtering.
-* comprehensive unit-tests.
-* powered by SQLite `FTS5 <http://sqlite.org/fts5.html>`_ for full-text search.
+* filtering based on metadata values.
+* attachment search and filtering.
+* powered by SQLite `FTS5 <http://sqlite.org/fts5.html>`_.
 
 Table of contents
 -----------------

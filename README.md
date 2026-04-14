@@ -24,10 +24,9 @@ Features:
 * store search content and arbitrary metadata.
 * attach files or BLOBs to indexed documents.
 * BM25 result ranking, porter stemmer.
-* besides full-text search, perform complex filtering based on metadata values.
-* global attachment search and filtering.
-* comprehensive unit-tests.
-* powered by SQLite [FTS5](http://sqlite.org/fts5.html) for full-text search.
+* filtering based on metadata values.
+* attachment search and filtering.
+* powered by SQLite [FTS5](http://sqlite.org/fts5.html).
 * [documentation hosted on rtd](https://scout.readthedocs.io/en/latest/).
 
 ## Installation
@@ -37,7 +36,7 @@ Scout requires **Python 3.8+** and a version of SQLite compiled with the
 can verify FTS5 support by running:
 
 ```console
-$ python -c "import sqlite3; sqlite3.connect(':memory:').execute('CREATE VIRTUAL TABLE t USING fts5(x)')"
+python -c "import sqlite3; sqlite3.connect(':memory:').execute('CREATE VIRTUAL TABLE t USING fts5(x)')"
 ```
 
 If this command fails, your SQLite build does not include FTS5 and you will
@@ -53,21 +52,21 @@ the provided [Dockerfile](https://github.com/coleifer/scout/blob/master/docker/D
 Installation using pip:
 
 ```console
-$ pip install scout
+pip install scout
 ```
 
 You can also install the latest `master` branch using pip:
 
 ```console
-$ pip install -e git+https://github.com/coleifer/scout.git#egg=scout
+pip install -e git+https://github.com/coleifer/scout.git#egg=scout
 ```
 
 If you wish to install from source, first clone the code and run `setup.py install`:
 
 ```console
-$ git clone https://github.com/coleifer/scout.git
-$ cd scout/
-$ pip install .
+git clone https://github.com/coleifer/scout.git
+cd scout/
+pip install .
 ```
 
 Using either of the above methods will also ensure the project's Python
@@ -81,13 +80,13 @@ dependencies are installed: [flask](https://flask.palletsprojects.com/) and
 If you installed using `pip`, you should be able to simply run:
 
 ```console
-$ scout /path/to/search-index.db
+scout /path/to/search-index.db
 ```
 
 If you've just got a copy of the source code, you can run:
 
 ```console
-$ python scout/ /path/to/search-index.db
+python scout/ /path/to/search-index.db
 ```
 
 ### Production-ready server
@@ -96,7 +95,7 @@ Scout comes with a production-ready WSGI server powered by gevent. To use this
 server instead, you can run:
 
 ```console
-$ scout_wsgi /path/to/search-index.db
+scout_wsgi /path/to/search-index.db
 ```
 
 ## Docker
@@ -110,7 +109,7 @@ To run scout using docker, you can use the provided Dockerfile or simply pull
 the `coleifer/scout` image from dockerhub:
 
 ```console
-$ docker run -d \
+docker run -d \
     --name scout \
     -p 9004:9004 \
     -v scout-data:/data \
@@ -124,9 +123,9 @@ $ docker run -d \
 Build your own image locally and run it:
 
 ```console
-$ cd scout/docker
-$ docker build -t scout .
-$ docker run -d \
+cd scout/docker
+docker build -t scout .
+docker run -d \
     --name my-scout-server \
     -p 9004:9004 \
     -v scout-data:/data \
@@ -138,7 +137,7 @@ $ docker run -d \
 You can pass additional Scout CLI flags by appending them to `docker run`:
 
 ```console
-$ docker run -d \
+docker run -d \
     -p 9004:9004 \
     -v scout-data:/data \
     coleifer/scout \
@@ -150,7 +149,7 @@ You can override the database location with the `SCOUT_DATABASE` environment
 variable:
 
 ```console
-$ docker run -d \
+docker run -d \
     -p 9004:9004 \
     -e SCOUT_DATABASE=/data/my-index.db \
     -v scout-data:/data \
@@ -163,7 +162,7 @@ If you are upgrading from an older Scout version that used FTS4, you can run
 the migration inside the container:
 
 ```console
-$ docker run --rm \
+docker run --rm \
     -v scout-data:/data \
     coleifer/scout --migrate
 ```
