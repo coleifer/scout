@@ -50,13 +50,13 @@ There are four main concepts in Scout:
 * Metadata
 
 **Indexes**
-   named collection of searchable documents.
+   Named collection of searchable documents.
 
 **Documents**
-   searchable content, may be associated with any number of indexes.
+   Searchable content, may be associated with any number of indexes.
 
 **Attachments**
-   arbitrary files which are associated with a document. For instance, if you
+   Arbitrary files which are associated with a document. For instance, if you
    were using Scout to provide search over a library of PDFs, your **Document**
    might contain the key search terms from the PDF and the actual PDF would be
    linked to the document as an attachment. A document may have any number of
@@ -67,15 +67,18 @@ There are four main concepts in Scout:
    the data is stored on disk. When an attachment is removed, the underlying
    data is automatically cleaned up once no other attachment references it.
 
-Documents also can have **metadata**, arbitrary key/value pairs. Besides
-full-text search, Scout allows complex filtering based on metadata values. So
-in addition to storing useful things alongside your documents, you can also use
-metadata to provide an additional layer of filtering.
+**Metadata**
+   Documents also can have metadata, arbitrary key/value pairs. Besides
+   full-text search, Scout allows filtering based on metadata values. So in
+   addition to storing useful things alongside your documents, you can also use
+   metadata to provide an additional layer of filtering.
 
 .. _index_list:
 
-Index list: "/"
----------------
+Index list
+----------
+
+Endpoint: ``/``
 
 The index list endpoint returns a paginated list of indexes and the number of
 documents contained within each. New indexes can be created by POST-ing a name
@@ -128,14 +131,16 @@ Response:
     }
 
 .. note::
-    The ``get_indexes()`` method returns just the ``"indexes"`` list from the
-    response, not the full paginated envelope.
+    The :meth:`Scout.get_indexes` method returns just the ``"indexes"`` list
+    from the response, not the full paginated envelope.
 
 Example POST request and response:
 
 .. code-block:: console
 
-    $ curl -H "Content-Type: application/json" -d '{"name": "test-index"}' localhost:8000/
+    $ curl -H "Content-Type: application/json" \
+           -d '{"name": "test-index"}' \
+           localhost:8000/
 
 Using the Python client:
 
@@ -163,8 +168,10 @@ newly-created index.
 
 .. _index_detail:
 
-Index detail: "/:index-name/"
------------------------------
+Index detail
+------------
+
+Endpoint: ``/:index-name/``
 
 The index detail returns the name and ID of the index, as well as a paginated list of documents associated with the index. The index can be re-named by POSTing a ``name`` to this URL.
 
@@ -204,7 +211,7 @@ Response:
 .. code-block:: javascript
 
     {
-      "document_count": 3,
+      "document_count": 20,
       "documents": [
         {
           "attachments": [],
@@ -239,22 +246,9 @@ Response:
             "is_kitty": "yes"
           },
           "score": -0.022727272727272728
-        },
-        {
-          "attachments": [],
-          "content": "test mickey document",
-          "id": 117,
-          "identifier": null,
-          "indexes": [
-            "test-index"
-          ],
-          "metadata": {
-            "is_kitty": "no"
-          },
-          "score": -0.022727272727272728
         }
       ],
-      "filtered_count": 3,
+      "filtered_count": 2,
       "filters": {},
       "id": 3,
       "name": "test-index",
@@ -269,8 +263,10 @@ Response:
 
 The search response includes several fields beyond the document list:
 
-* ``document_count``: the total number of documents in the queried scope (e.g. the index), regardless of the current search query or filters.
-* ``filtered_count``: the number of documents that match the current search query and any metadata filters. This may be less than ``document_count``.
+* ``document_count``: the total number of documents in the queried scope (e.g.
+  the index), regardless of the current search query or filters.
+* ``filtered_count``: the number of documents that match the current search
+  query and any metadata filters. This may be less than ``document_count``.
 * ``search_term``: echoes back the ``q`` parameter that was used.
 * ``ranking``: echoes back the ranking algorithm used (``bm25`` or ``none``).
 * ``filters``: echoes back any metadata filters that were applied.
@@ -384,15 +380,27 @@ people who live in Lawrence or Topeka would be:
 
 ``/contacts-index/?q=*&city=Lawrence&city=Topeka&state=KS``
 
+With the client, you could pass these as a list:
+
+.. code-block:: python
+
+    results = scout.get_index(
+        'contacts-index',
+        q='*',
+        city=['Lawrence', 'Topeka'],
+        state='KS')
+
 As you can see, we're querying ``city=XXX`` twice. Scout will interpret that as
 meaning ``(city=Lawrence OR city=Topeka) AND state=KS``.
 
 Query operations
 ^^^^^^^^^^^^^^^^
 
-There are a number of operations available for use when querying metadata. Here is the complete list:
+There are a number of operations available for use when querying metadata. Here
+is the complete list:
 
-* ``keyname__eq``: Default (when only the key name is supplied). Returns documents whose metadata contains the given key/value pair.
+* ``keyname__eq``: Default (when only the key name is supplied). Returns
+  documents whose metadata contains the given key/value pair.
 * ``keyname__ne``: Not equals.
 * ``keyname__ge``: Greater-than or equal-to.
 * ``keyname__gt``: Greater-than.
@@ -416,8 +424,10 @@ There are a number of operations available for use when querying metadata. Here 
 
 .. _document_list:
 
-Document list: "/documents/"
-----------------------------
+Document list
+-------------
+
+Endpoint: ``/documents/``
 
 The document list endpoint returns a paginated list of all documents,
 regardless of index. New documents are created by ``POST``-ing the content,
@@ -427,7 +437,10 @@ Valid GET parameters:
 
 * ``q``: full-text search query.
 * ``page``: which page of documents to fetch, by default 1.
-* ``index``: the name of an index to restrict the results to. **Note**: this parameter can appear multiple times. When multiple indexes are specified, the ``document_count`` reflects the number of distinct documents across those indexes (a document belonging to multiple filtered indexes is only counted once).
+* ``index``: the name of an index to restrict the results to. **Note**: this
+  parameter can appear multiple times. When multiple indexes are specified,
+  the ``document_count`` reflects the number of distinct documents across those
+  indexes (a document belonging to multiple filtered indexes is only counted once).
 * ``ordering``: order in which to return the documents. By default they are returned in arbitrary order, unless a search query is present, in which case they are ordered by relevance. Valid choices are ``id``, ``identifier``, ``content``, and ``score``. By prefixing the name with a *minus* sign ("-") you can indicate the results should be ordered descending. **Note**: this parameter can appear multiple times.
 * ``ranking``: when a full-text search query is specified, this parameter determines the ranking algorithm. Valid choices are:
 
@@ -519,8 +532,14 @@ Response:
 ``POST`` requests should have the following parameters:
 
 * ``content`` (required): the document content.
-* ``index`` or ``indexes`` (required): the name(s) of the index(es) the document should be associated with.
-* ``identifier`` (optional): an application-defined identifier for the document. If a document with the same identifier already exists, the existing document will be updated instead of creating a new one. Identifiers may only contain letters, digits, ``_``, ``-``, ``.``, and ``:``. Characters such as spaces, slashes, ``?``, and ``%`` are not allowed and will be rejected with a 400 error.
+* ``index`` or ``indexes`` (required): the name(s) of the index(es) the
+  document should be associated with.
+* ``identifier`` (optional): an application-defined identifier for the
+  document. If a document with the same identifier already exists, the existing
+  document will be updated instead of creating a new one. Identifiers may only
+  contain letters, digits, ``_``, ``-``, ``.``, and ``:``. Characters such as
+  spaces, slashes, ``?``, and ``%`` are not allowed and will be rejected with a
+  400 error.
 * ``metadata`` (optional): arbitrary key/value pairs.
 
 .. warning::
@@ -571,8 +590,10 @@ Response on creating a new document:
 
 .. _document_detail:
 
-Document detail: "/documents/:document-id/"
--------------------------------------------
+Document detail
+---------------
+
+Endpoint: ``/documents/:document-id/``
 
 The document detail endpoint returns document content, indexes, and metadata.
 Documents can be updated or deleted by using ``POST`` and ``DELETE`` requests,
@@ -828,8 +849,10 @@ Theft can only happen through ``update_document``.
 
 .. _update_metadata:
 
-Update metadata: "/documents/:document-id/metadata/"
------------------------------------------------------
+Update metadata
+---------------
+
+Endpoint: ``/documents/:document-id/metadata/``
 
 The update metadata endpoint merges new metadata into a document's existing
 metadata, rather than replacing it entirely (as happens when you include
@@ -937,8 +960,10 @@ Using the Python client:
 
 .. _attachment_list:
 
-Attachment list: "/documents/:document-id/attachments/"
--------------------------------------------------------
+Attachment list
+---------------
+
+Endpoint: ``/documents/:document-id/attachments/``
 
 The attachment list endpoint returns a paginated list of all attachments associated with a given document. New attachments are created by ``POST``-ing a file to this endpoint.
 
@@ -1069,8 +1094,10 @@ it in the document's metadata.
 
 .. _attachment_detail:
 
-Attachment detail: "/documents/:document-id/attachments/:filename/"
--------------------------------------------------------------------
+Attachment detail
+-----------------
+
+Endpoint: ``/documents/:document-id/attachments/:filename/``
 
 The attachment detail endpoint returns basic information about the attachment,
 as well as a link to download the actual attached file. Attachments can be
@@ -1142,8 +1169,10 @@ Response:
 
 .. _attachment_download:
 
-Attachment download: "/documents/:document-id/attachments/:filename/download/"
-------------------------------------------------------------------------------
+Attachment download
+-------------------
+
+Endpoint: ``/documents/:document-id/attachments/:filename/download/``
 
 The attachment download endpoint is a special URL that returns the attached
 file as a downloadable HTTP response. This is the only way to access an
@@ -1167,8 +1196,10 @@ Using the Python client:
 
 .. _global_attachment_list:
 
-Global attachment list: "/attachments/"
----------------------------------------
+Global attachment list
+----------------------
+
+Endpoint: ``/attachments/``
 
 The global attachment list endpoint returns a paginated list of all attachments
 across all documents in the database. This is useful for browsing or searching

@@ -25,6 +25,47 @@ Most examples use :py:meth:`~Scout.search`, which searches across all indexes
 (or a specified subset). To restrict a search to a single index, use
 :py:meth:`~Scout.get_index` instead — the query syntax is identical.
 
+Quick Reference
+---------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 30 40
+
+   * - Feature
+     - Syntax
+     - Example
+   * - Single term
+     - ``word``
+     - ``q='python'``
+   * - Implicit AND
+     - ``word1 word2``
+     - ``q='python web'``
+   * - OR
+     - ``word1 OR word2``
+     - ``q='flask OR django'``
+   * - NOT
+     - ``word1 NOT word2``
+     - ``q='python NOT java'``
+   * - Phrase
+     - ``"word1 word2"``
+     - ``q='"web framework"'``
+   * - Prefix
+     - ``prefix*``
+     - ``q='frame*'``
+   * - NEAR
+     - ``NEAR(w1 w2, N)``
+     - ``q='NEAR(python web, 5)'``
+   * - Initial token
+     - ``^word``
+     - ``q='^python'``
+   * - Grouping
+     - ``(expr)``
+     - ``q='(flask OR django) AND python'``
+   * - All documents
+     - ``*``
+     - ``q='*'``
+
 Simple Queries
 --------------
 
@@ -314,44 +355,3 @@ You can also control sort order with the ``ordering`` parameter:
 
 Valid ordering choices: ``id``, ``identifier``, ``content``, ``score``
 (only when a search query is present). Prefix with ``-`` for descending.
-
-Quick Reference
----------------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 30 40
-
-   * - Feature
-     - Syntax
-     - Example
-   * - Single term
-     - ``word``
-     - ``q='python'``
-   * - Implicit AND
-     - ``word1 word2``
-     - ``q='python web'``
-   * - OR
-     - ``word1 OR word2``
-     - ``q='flask OR django'``
-   * - NOT
-     - ``word1 NOT word2``
-     - ``q='python NOT java'``
-   * - Phrase
-     - ``"word1 word2"``
-     - ``q='"web framework"'``
-   * - Prefix
-     - ``prefix*``
-     - ``q='frame*'``
-   * - NEAR
-     - ``NEAR(w1 w2, N)``
-     - ``q='NEAR(python web, 5)'``
-   * - Initial token
-     - ``^word``
-     - ``q='^python'``
-   * - Grouping
-     - ``(expr)``
-     - ``q='(flask OR django) AND python'``
-   * - All documents
-     - ``*``
-     - ``q='*'``
