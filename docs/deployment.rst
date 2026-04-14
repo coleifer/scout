@@ -113,44 +113,67 @@ It is common to run uWSGI behind Nginx. For more information `check out the uWSG
 Docker
 ------
 
-Scout includes a ``Dockerfile`` for containerized deployments. The default
-image uses the built-in gevent server on port 9004 with a volume-mounted
-database.
+Scout includes a ``Dockerfile`` for containerized deployments. The Docker image
+runs Scout on port **9004** (rather than the default 8000) using the built-in
+gevent WSGI server. The database path defaults to ``/data/search-index.db`` and
+is controlled by the ``SCOUT_DATABASE`` environment variable. The ``/data``
+directory is declared as a volume.
 
-Building the image:
-
-.. code-block:: console
-
-    $ docker build -t scout .
-
-Running the container:
+To run Scout using Docker, you can pull the ``coleifer/scout`` image from the
+GitHub container registry:
 
 .. code-block:: console
 
     $ docker run -d \
-        -p 8000:9004 \
-        -v /path/to/data:/data \
         --name scout \
+        -p 9004:9004 \
+        -v /path/to/data:/data \
+        ghcr.io/coleifer/scout:latest
+
+.. note::
+    Always mount a host directory to ``/data`` (as shown above) to persist your
+    search index across container restarts.
+
+You can also build the image locally:
+
+.. code-block:: console
+
+    $ cd scout/docker
+    $ docker build -t scout .
+    $ docker run -d \
+        --name scout \
+        -p 9004:9004 \
+        -v /path/to/data:/data \
         scout
 
-The database file is stored at ``/data/search-index.db`` inside the container
-(controlled by the ``SCOUT_DATABASE`` environment variable). Logs are written
-to ``/data/scout.log``.
+The database file is stored at ``/data/search-index.db`` inside the container.
+Logs are written to ``/data/scout.log``.
 
-You can override any Scout option by appending flags to the ``docker run``
+Overriding settings
+^^^^^^^^^^^^^^^^^^^
+
+You can pass additional Scout CLI flags by appending them to the ``docker run``
 command:
 
 .. code-block:: console
 
     $ docker run -d \
-        -p 8000:9004 \
+        -p 9004:9004 \
+        -v /path/to/data:/data \
+        ghcr.io/coleifer/scout:latest \
+        -k my-secret-api-key \
+        --paginate-by 100
+
+You can override the database location with the ``SCOUT_DATABASE`` environment
+variable:
+
+.. code-block:: console
+
+    $ docker run -d \
+        -p 9004:9004 \
         -v /path/to/data:/data \
         -e SCOUT_DATABASE=/data/my-index.db \
-        scout \
-        --api-key secret --paginate-by 100
-
-The image includes a health check that polls the index list endpoint every 30
-seconds.
+        ghcr.io/coleifer/scout:latest
 
 To use a custom configuration file, mount it into the container and set the
 ``SCOUT_CONFIG`` environment variable:
@@ -158,8 +181,23 @@ To use a custom configuration file, mount it into the container and set the
 .. code-block:: console
 
     $ docker run -d \
-        -p 8000:9004 \
+        -p 9004:9004 \
         -v /path/to/data:/data \
         -v /path/to/config.py:/etc/scout/config.py \
         -e SCOUT_CONFIG=/etc/scout/config.py \
-        scout
+        ghcr.io/coleifer/scout:latest
+
+The image includes a health check that polls the index list endpoint every 30
+seconds.
+
+Migrating an existing database
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you are upgrading from an older Scout version that used FTS4, you can run
+the migration inside the container:
+
+.. code-block:: console
+
+    $ docker run --rm \
+        -v /path/to/data:/data \
+        ghcr.io/coleifer/scout:latest --migrate

@@ -106,14 +106,14 @@ using the built-in gevent WSGI server. The database path defaults to
 variable. The `/data` directory is declared as a volume.
 
 To run scout using docker, you can use the provided Dockerfile or simply pull
-the `coleifer/scout` image from dockerhub:
+the `coleifer/scout` image:
 
 ```console
 docker run -d \
     --name scout \
     -p 9004:9004 \
-    -v scout-data:/data \
-    coleifer/scout
+    -v /path/to/data:/data \
+    ghcr.io/coleifer/scout:latest
 # scout is now running on localhost:9004
 ```
 
@@ -128,7 +128,7 @@ docker build -t scout .
 docker run -d \
     --name my-scout-server \
     -p 9004:9004 \
-    -v scout-data:/data \
+    -v /path/to/data:/data \
     scout
 ```
 
@@ -139,8 +139,8 @@ You can pass additional Scout CLI flags by appending them to `docker run`:
 ```console
 docker run -d \
     -p 9004:9004 \
-    -v scout-data:/data \
-    coleifer/scout \
+    -v /path/to/data:/data \
+    ghcr.io/coleifer/scout:latest \
     -k my-secret-api-key \
     --paginate-by 100
 ```
@@ -152,8 +152,8 @@ variable:
 docker run -d \
     -p 9004:9004 \
     -e SCOUT_DATABASE=/data/my-index.db \
-    -v scout-data:/data \
-    coleifer/scout
+    -v /path/to/data:/data \
+    ghcr.io/coleifer/scout:latest
 ```
 
 ### Migrating an existing database
@@ -163,6 +163,6 @@ the migration inside the container:
 
 ```console
 docker run --rm \
-    -v scout-data:/data \
-    coleifer/scout --migrate
+    -v /path/to/data:/data \
+    ghcr.io/coleifer/scout:latest --migrate
 ```
