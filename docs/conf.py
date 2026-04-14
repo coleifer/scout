@@ -98,14 +98,14 @@ pygments_style = 'sphinx'
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-html_theme = 'alabaster'
-html_theme_options = {
-    'github_user': 'coleifer',
-    'github_repo': 'scout',
-    'page_width': '1000px',
-    'sidebar_width': '240px',
-    'font_size': '15px',
-}
+html_theme = 'default'
+#html_theme_options = {
+#    'github_user': 'coleifer',
+#    'github_repo': 'scout',
+#    'page_width': '1000px',
+#    'sidebar_width': '240px',
+#    'font_size': '15px',
+#}
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
